@@ -2,4 +2,5 @@ secrets.sh
 keys.txt
 .idea/
 db/
+*/__pycache__/
 __pycache__/
