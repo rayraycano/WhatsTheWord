@@ -18,17 +18,34 @@ f = open('./db/artist_maps/1519639336.json', 'r')
 ARTIST_MAP = json.load(f)
 f.close()
 
+# edmund is cool
+def get_all_urls(min_id=0):
+    for artist in filter(lambda x: ARTIST_MAP[x] > min_id, ARTIST_MAP.keys()):
+        download_lyrics(artist, float('inf'), save_urls_only=True)
 
-def download_lyrics(artist, number_of_songs=20):
+def download_lyrics(artist, number_of_songs=20, save_urls_only=False):
+    print('here')
     artist_id = ARTIST_MAP[artist]
-    page = 100
+    page = 1
     songs_per_request = min(number_of_songs, MAX_SONGS_PER_REQUEST)
+    all_urls = []
     while number_of_songs > 0:
-        songs = _get_songs_for_artist(artist_id, songs_per_request, page)
+        titles_and_lyrics = []
+        urls_and_titles, err = _get_song_urls_for_artist(artist_id, songs_per_request, page)
+        if len(urls_and_titles) == 0:
+            break
         page += 1
         number_of_songs -= songs_per_request
-        _write_songs(songs, artist)
-
+        all_urls.extend([x[0] for x in urls_and_titles])
+        if not save_urls_only:
+            for link, title in urls_and_titles:
+                titles_and_lyrics.append((title, _get_lyrics_for_url(link)))
+            _write_songs(titles_and_lyrics, artist)
+    artist_name = artist.replace('/', '_')
+    if not os.path.isdir('./db/{}'.format(artist_name)):
+        os.mkdir('./db/{}'.format(artist_name))
+    with open('./db/{}/urls.txt'.format(artist_name), 'w') as g:
+        g.write('\n'.join(all_urls))
 
 def _write_songs(songs, artist):
     print("writing to file")
@@ -41,14 +58,15 @@ def _write_songs(songs, artist):
     return
 
 
-def _get_songs_for_artist(artist_id, number_of_songs, page):
+def _get_song_urls_for_artist(artist_id, number_of_songs, page):
     """
+    Get a list of song URLs for a given artist
     :param artist_id: Genius artist ID
     :param number_of_songs: Number of songs to request
+    :param page: Genius pagination number
     :return: List of tuples with the title and the lyrics, each as strings
     """
-    titles_and_lyrics = []
-
+    print("Fetching {} songs from page {} for artist_id: {}".format(number_of_songs, page, artist_id))
     response = requests.request(
         "GET",
         "{}/artists/{}/songs".format(base_url, artist_id),
@@ -56,19 +74,23 @@ def _get_songs_for_artist(artist_id, number_of_songs, page):
         params={"per_page": number_of_songs, "page": page}
     )
     if response.status_code != 200:
-        raise Exception("Bad Response: \nCode: {}\n Content:{}".format(response.status_code, response.content))
+        # raise Exception("Bad Response: \nCode: {}\n Content:{}".format(response.status_code, response.content))
+        return [], True
 
     response_content = json.loads(response.content)
     songs = response_content['response']['songs']
-
-    for song in songs:
-        print('getting song for url: {}'.format(song['url']))
-        titles_and_lyrics.append((song['title'], _get_lyrics_for_url(song['url'])))
-
-    return titles_and_lyrics
+    print("number of songs fetched: {}".format(len(songs)))
+    return [(song['url'], song['title']) for song in songs], False
 
 
 def make_artist_map(start=1, end=20000):
+    """
+    Recreate the artist mapping for Genius
+    :param start: ID to start at
+    :param end: ID to end at
+    :return: None
+    """
+
     map = {}
     map_path = 'db/artist_maps/{}.json'.format(math.floor(datetime.datetime.now().timestamp()))
     os.makedirs('db/artist_maps', exist_ok=True)
@@ -80,9 +102,6 @@ def make_artist_map(start=1, end=20000):
         if i % 100:
             with open(map_path, 'w') as f:
                 f.write(json.dumps(map, indent=4, separators=[',', ':']))
-
-
-    #TODO MAKE MAP AND WRITE TO DISK
 
 
 def _get_artist_name(artist_id):
