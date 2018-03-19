@@ -5,6 +5,7 @@ import re
 import os
 import datetime
 import math
+from numpy import random
 
 
 lyric_segment_annotation = re.compile("\[.*\]")
@@ -14,7 +15,7 @@ base_url = "https://api.genius.com"
 token = os.environ['GENIUS_TOKEN']
 MAX_SONGS_PER_REQUEST = 50
 
-f = open('./db/artist_maps/1519639336.json', 'r')
+f = open('./db/artist_maps/artist_map.json', 'r')
 ARTIST_MAP = json.load(f)
 f.close()
 
@@ -22,6 +23,24 @@ f.close()
 def get_all_urls(min_id=0):
     for artist in filter(lambda x: ARTIST_MAP[x] > min_id, ARTIST_MAP.keys()):
         download_lyrics(artist, float('inf'), save_urls_only=True)
+
+
+def download_lyrics_from_urls(sample_rate=0.2, start=1):
+
+    qualified_artists = filter(lambda x: start < ARTIST_MAP[x] < 400, ARTIST_MAP.keys())
+    for artist in qualified_artists:
+        # TODO: Move artist_map out of db
+        if artist == 'artist_map':
+            continue
+        print('getting lyrics for artist {}'.format(artist))
+        with open('./db/{}/urls.txt'.format(artist), 'r') as f:
+            urls = f.read().split('\n')
+        num_samples = int(math.ceil(len(urls) * sample_rate))
+        sampled_songs = random.choice(urls, num_samples, False)
+        titles_and_urls = [(url.replace('https://genius.com/', ''), _get_lyrics_for_url(url)) for url in sampled_songs]
+        print("Writing for artist id: {}".format(ARTIST_MAP[artist]))
+        _write_songs(titles_and_urls, artist)
+
 
 def download_lyrics(artist, number_of_songs=20, save_urls_only=False):
     print('here')
