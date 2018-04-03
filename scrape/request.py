@@ -1,3 +1,4 @@
+import logging
 import requests
 import json
 from bs4 import BeautifulSoup, Comment
@@ -7,6 +8,9 @@ import datetime
 import math
 from numpy import random
 
+logger = logging.getLogger(__name__)
+handler = logging.FileHandler('logs/scrap.request.log')
+logger.addHandler(handler)
 
 lyric_segment_annotation = re.compile("\[.*\]")
 
@@ -25,9 +29,9 @@ def get_all_urls(min_id=0):
         download_lyrics(artist, float('inf'), save_urls_only=True)
 
 
-def download_lyrics_from_urls(sample_rate=0.2, start=1):
+def download_lyrics_from_urls(sample_rate=0.2, start=1, max_number=1000):
 
-    qualified_artists = filter(lambda x: start < ARTIST_MAP[x] < 400, ARTIST_MAP.keys())
+    qualified_artists = filter(lambda x: start < ARTIST_MAP[x] < max_number, ARTIST_MAP.keys())
     for artist in qualified_artists:
         # TODO: Move artist_map out of db
         if artist == 'artist_map':
@@ -141,12 +145,18 @@ def _get_artist_name(artist_id):
 
 
 def _get_lyrics_for_url(url):
+    if url == '':
+        logger.warn("Yikes! No URL")
+        return ''
     web_request = requests.request(
         "GET",
         url,
     )
     soup = BeautifulSoup(web_request.content, 'html.parser')
     lyrics_div = soup.find('div', class_='lyrics')
+    if lyrics_div is None:
+        logger.warn("Yikes! No Lyrics for {}".format(url))
+        return ''
     for comment_element in lyrics_div(text=lambda text: isinstance(text, Comment)):
         comment_element.extract()
     lines = []
