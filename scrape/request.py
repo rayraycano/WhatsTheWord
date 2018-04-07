@@ -29,16 +29,19 @@ def get_all_urls(min_id=0):
         download_lyrics(artist, float('inf'), save_urls_only=True)
 
 
-def download_lyrics_from_urls(sample_rate=0.2, start=1, max_number=1000):
+def download_lyrics_from_urls(sample_rate=0.2, start=1, max_number=1000, artists=None):
 
-    qualified_artists = filter(lambda x: start < ARTIST_MAP[x] < max_number, ARTIST_MAP.keys())
+    qualified_artists = filter(lambda x: start < ARTIST_MAP[x] < max_number, ARTIST_MAP.keys()) if artists is None else artists
     for artist in qualified_artists:
         # TODO: Move artist_map out of db
         if artist == 'artist_map':
             continue
         print('getting lyrics for artist {}'.format(artist))
-        with open('./db/{}/urls.txt'.format(artist), 'r') as f:
-            urls = f.read().split('\n')
+        with open('./db/{}/urls.txt'.format(artist), 'r') as g:
+            urls = g.read().split('\n')
+        print("len(urls): {}".format(len(urls)))
+        print("sample rate: `{}".format(sample_rate))
+        print("ceil call: {}".format(math.ceil(len(urls) * sample_rate)))
         num_samples = int(math.ceil(len(urls) * sample_rate))
         sampled_songs = random.choice(urls, num_samples, False)
         titles_and_urls = [(url.replace('https://genius.com/', ''), _get_lyrics_for_url(url)) for url in sampled_songs]
@@ -77,6 +80,7 @@ def _write_songs(songs, artist):
     for idx, (title, lyrics) in enumerate(songs):
         modified_title = title.replace('/', '_').replace(' ', '_')
         with open(os.path.join(artist_path + '/{}_{}.txt'.format(modified_title, idx)), 'w') as g:
+            print(lyrics)
             g.write(lyrics)
     return
 
