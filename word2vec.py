@@ -8,19 +8,50 @@ import matplotlib.pyplot as plt
 import os
 from tensorflow.contrib.tensorboard.plugins import projector
 from sklearn.manifold import TSNE
+from datetime import datetime
+import json
 
 LOGDIR = './logs'
 
 
-def main(args):
-    if not os.path.isdir(LOGDIR):
-        os.makedirs(LOGDIR)
 
-    vocabulary = read_data(args.filename)
+def main(filename, run_id,
+         vocabulary_size=50000,
+         batch_size=128,
+         embedding_size=128,
+         skip_window=1,
+         num_skips=2,
+         num_sampled=64,
+         num_steps=50000):
+    """
+    :param filename: Name of the data file
+    :param run_id: Name of the run
+    :param vocabulary_size: Size of recognized vocabulary words
+    :param batch_size: number of examples in each batch
+    :param embedding_size: Dimension of the embedding vector.
+    :param skip_window: How many words to consider left and right.
+    :param num_skips: How many times to reuse an input to generate a label.
+    :param num_sampled: Number of negative examples to sample.
+    :param num_steps: Number of training iterations to go through.
+
+    Saves the model, lookup metadata, and tsne clustering after training a model off
+    of a word embedding.
+    """
+    run_dir = os.path.join(LOGDIR, run_id, datetime.now().strftime('%Y%m%d-%H%M'))
+    if not os.path.isdir(run_dir):
+        os.makedirs(run_dir)
+    with open(os.path.join(run_dir, 'config.json'), 'w') as f:
+        json.dump(f, dict(
+            vocabulary_size=vocabulary_size, batch_size=batch_size,
+            embedding_size=embedding_size, skip_window=skip_window,
+            num_skips=num_skips, num_sampled=num_sampled, num_steps=num_steps,
+        ), indent=4, sort_keys=True)
+
+    vocabulary = read_data(filename)
     print('Data size', len(vocabulary))
 
     # Build the dictionary and replace rare words with UNK token.
-    vocabulary_size = 50000
+
     data, count, dictionary, reversed_dictionary = build_dataset(vocabulary, vocabulary_size)
     # Check if our words of interest are common words in rap literature
     words_to_check = ['nigga', 'friend', 'brother', 'brotha', 'homie', 'pal', 'dog', 'bitch', 'gangster', 'gangsta']
@@ -33,18 +64,13 @@ def main(args):
 
     # Small test run here
     data_index = 0
-    batch_size = 8
-    batch, labels, data_index = generate_batch(batch_size, 2, 1, data, data_index)
+    test_batch_size = 8
+    batch, labels, data_index = generate_batch(test_batch_size, 2, 1, data, data_index)
     print('batch: ', batch)
     print('labels: ', labels)
-    for i in range(batch_size):
+    for i in range(test_batch_size):
         print(batch[i], reversed_dictionary[batch[i]], '->', labels[i, 0],
               reversed_dictionary[labels[i, 0]])
-    batch_size = 128
-    embedding_size = 128  # Dimension of the embedding vector.
-    skip_window = 1  # How many words to consider left and right.
-    num_skips = 2  # How many times to reuse an input to generate a label.
-    num_sampled = 64  # Number of negative examples to sample.
 
     # We pick a random validation set to sample nearest neighbors. Here we limit the
     # validation samples to the words that have a low numeric ID, which by
@@ -113,9 +139,8 @@ def main(args):
         saver = tf.train.Saver()
 
     # Train Now
-    num_steps = 100000
     with tf.Session(graph=graph) as session:
-        writer = tf.summary.FileWriter(LOGDIR, session.graph)
+        writer = tf.summary.FileWriter(run_dir, session.graph)
         init.run()
         print('Started from the bottom')
 
@@ -162,31 +187,32 @@ def main(args):
                     print(log_str)
         final_embeddings = normalized_embeddings.eval()
 
-
         # Write corresponding labels for the embeddings.
-        with open(LOGDIR + '/metadata.tsv', 'w') as f:
+        with open(run_dir + '/metadata.tsv', 'w') as f:
             for i in range(vocabulary_size):
                 f.write(reversed_dictionary[i] + '\n')
+
         # Save the model for checkpoints.
-        saver.save(session, os.path.join(LOGDIR, 'model.ckpt'))
+        saver.save(session, os.path.join(run_dir, 'model.ckpt'))
 
             # Create a configuration for visualizing embeddings with the labels in TensorBoard.
         config = projector.ProjectorConfig()
         embedding_conf = config.embeddings.add()
         embedding_conf.tensor_name = embeddings.name
-        embedding_conf.metadata_path = os.path.join(LOGDIR, 'metadata.tsv')
+        embedding_conf.metadata_path = os.path.join(run_dir, 'metadata.tsv')
         projector.visualize_embeddings(writer, config)
 
     writer.close()
 
+    plot_tsne(final_embeddings, 1000, reversed_dictionary)
 
+
+def plot_tsne(embeddings, plot_only, reversed_dictionary):
     tsne = TSNE(
         perplexity=30, n_components=2, init='pca', n_iter=5000, method='exact')
-    plot_only = 500
-    low_dim_embs = tsne.fit_transform(final_embeddings[:plot_only, :])
+    low_dim_embs = tsne.fit_transform(embeddings[:plot_only, :])
     labels = [reversed_dictionary[i] for i in range(plot_only)]
     plot_with_labels(low_dim_embs, labels, os.path.join('./', 'tsne.png'))
-
 
 def plot_with_labels(low_dim_embs, labels, filename):
     assert low_dim_embs.shape[0] >= len(labels), 'More labels than embeddings'
@@ -277,6 +303,12 @@ def build_dataset(words, n_words):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--filename")
+    parser.add_argument("--pfile")  # parameters file
 
     args = parser.parse_args()
-    main(args)
+    param_file = args.pfile
+    with open(param_file, 'r') as p:
+        param_dict = json.load(p)
+        datafile = param_dict.pop('datafile')
+        run_id = param_dict.pop('run_id')
+    main(datafile, run_id, **param_dict)
