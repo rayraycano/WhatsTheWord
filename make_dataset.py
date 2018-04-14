@@ -98,7 +98,7 @@ def _clean_data(regex_replacements: List[RegexReplacement], file_text):
     for rr in regex_replacements:
         txt = rr.rx.sub(rr.replacement, txt)
 
-    return ' '.join(filter(lambda x: x != '', SPLITTER.split(txt))) + ' ', False
+    return ' '.join(filter(lambda x: x != '', SPLITTER.split(txt.lower()))) + ' ', False
 
 
 if __name__ == '__main__':
