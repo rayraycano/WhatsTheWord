@@ -1,0 +1,10 @@
+{
+  "run_id": "default",
+  "datafile": "cleaned_data/20180410/clean90.txt",
+  "batch_size": 128,
+  "embedding_size": 128,
+  "skip_window": 1,
+  "num_skips": 2,
+  "num_sampled": 64,
+  "num_steps": 50000
+}

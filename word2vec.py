@@ -14,7 +14,6 @@ import json
 LOGDIR = './logs'
 
 
-
 def main(filename, run_id,
          vocabulary_size=50000,
          batch_size=128,
@@ -41,11 +40,11 @@ def main(filename, run_id,
     if not os.path.isdir(run_dir):
         os.makedirs(run_dir)
     with open(os.path.join(run_dir, 'config.json'), 'w') as f:
-        json.dump(f, dict(
+        json.dump(dict(
             vocabulary_size=vocabulary_size, batch_size=batch_size,
             embedding_size=embedding_size, skip_window=skip_window,
             num_skips=num_skips, num_sampled=num_sampled, num_steps=num_steps,
-        ), indent=4, sort_keys=True)
+        ), f, indent=4, sort_keys=True)
 
     vocabulary = read_data(filename)
     print('Data size', len(vocabulary))
@@ -188,7 +187,7 @@ def main(filename, run_id,
         final_embeddings = normalized_embeddings.eval()
 
         # Write corresponding labels for the embeddings.
-        with open(run_dir + '/metadata.tsv', 'w') as f:
+        with open(os.path.join(run_dir, 'metadata.tsv'), 'w') as f:
             for i in range(vocabulary_size):
                 f.write(reversed_dictionary[i] + '\n')
 
@@ -204,15 +203,15 @@ def main(filename, run_id,
 
     writer.close()
 
-    plot_tsne(final_embeddings, 1000, reversed_dictionary)
+    plot_tsne(final_embeddings, 1000, reversed_dictionary, run_dir)
 
 
-def plot_tsne(embeddings, plot_only, reversed_dictionary):
+def plot_tsne(embeddings, plot_only, reversed_dictionary, run_dir):
     tsne = TSNE(
         perplexity=30, n_components=2, init='pca', n_iter=5000, method='exact')
     low_dim_embs = tsne.fit_transform(embeddings[:plot_only, :])
     labels = [reversed_dictionary[i] for i in range(plot_only)]
-    plot_with_labels(low_dim_embs, labels, os.path.join('./', 'tsne.png'))
+    plot_with_labels(low_dim_embs, labels, os.path.join(run_dir, 'tsne.png'))
 
 def plot_with_labels(low_dim_embs, labels, filename):
     assert low_dim_embs.shape[0] >= len(labels), 'More labels than embeddings'
@@ -310,5 +309,6 @@ if __name__ == '__main__':
     with open(param_file, 'r') as p:
         param_dict = json.load(p)
         datafile = param_dict.pop('datafile')
-        run_id = param_dict.pop('run_id')
+        run_id = param_file.split('/')[-1].split('.')[0]
+        print('run_id: ' + run_id)
     main(datafile, run_id, **param_dict)
