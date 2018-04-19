@@ -11,6 +11,7 @@ import argparse
 RegexReplacement = namedtuple('RegexReplacement', ['rx', 'replacement'])
 
 SPLITTER = re.compile('[' + string.punctuation + string.whitespace + ']')
+NORMAL_LETTERS = re.compile('^[0-9a-zA-Z]+$')
 
 cleaned_data_path = './cleaned_data/'
 DB_PATH = './db'
@@ -97,8 +98,10 @@ def _clean_data(regex_replacements: List[RegexReplacement], file_text):
     txt = removed_bracket_notes
     for rr in regex_replacements:
         txt = rr.rx.sub(rr.replacement, txt)
+    words = SPLITTER.split(txt.lower())
+    filtered_words = filter(lambda x: NORMAL_LETTERS.match(x), words)
 
-    return ' '.join(filter(lambda x: x != '', SPLITTER.split(txt.lower()))) + ' ', False
+    return ' '.join(filtered_words) + ' ', False
 
 
 if __name__ == '__main__':
