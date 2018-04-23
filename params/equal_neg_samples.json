@@ -4,6 +4,6 @@
   "embedding_size": 128,
   "skip_window": 2,
   "num_skips": 2,
-  "num_sampled": 64,
+  "num_sampled": 128,
   "num_steps": 100000
 }

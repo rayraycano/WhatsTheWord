@@ -194,7 +194,7 @@ def main(filename, run_id,
         # Save the model for checkpoints.
         saver.save(session, os.path.join(run_dir, 'model.ckpt'))
 
-            # Create a configuration for visualizing embeddings with the labels in TensorBoard.
+        # Create a configuration for visualizing embeddings with the labels in TensorBoard.
         config = projector.ProjectorConfig()
         embedding_conf = config.embeddings.add()
         embedding_conf.tensor_name = embeddings.name
@@ -212,6 +212,7 @@ def plot_tsne(embeddings, plot_only, reversed_dictionary, run_dir):
     low_dim_embs = tsne.fit_transform(embeddings[:plot_only, :])
     labels = [reversed_dictionary[i] for i in range(plot_only)]
     plot_with_labels(low_dim_embs, labels, os.path.join(run_dir, 'tsne.png'))
+
 
 def plot_with_labels(low_dim_embs, labels, filename):
     assert low_dim_embs.shape[0] >= len(labels), 'More labels than embeddings'
@@ -266,11 +267,13 @@ def generate_batch(batch_size, num_skips, skip_window, data, data_index):
     data_index = (data_index + len(data) - span) % len(data)
     return batch, labels, data_index
 
+
 def read_data(filename):
     """Extract the first file enclosed in a zip file as a list of words."""
     with open(filename, 'r') as f:
         data = f.read().split()
     return data
+
 
 def build_dataset(words, n_words):
     """
@@ -298,6 +301,70 @@ def build_dataset(words, n_words):
     count[0][1] = unk_count
     reversed_dictionary = dict(zip(dictionary.values(), dictionary.keys()))
     return data, count, dictionary, reversed_dictionary
+
+
+def load_weights(run_id, full_folderpath=None):
+    """
+    Loads the weights from the specified run, taking the most recent run to be the model
+    :param run_id: string name of the run
+    :param full_folderpath: optional datetime stamp to specify the run in format YYYYMMDD-HHMM
+    :return: mapping embedding, norm of embeddings, normalized embeddings
+    """
+    dir_path = os.path.dirname(os.path.realpath(__file__))
+    run_id_path = os.path.join(dir_path, 'logs', run_id)
+    print(dir_path)
+    print(run_id_path)
+    if not os.path.isdir(run_id_path):
+        print("invalid run_id: {}".format(run_id_path))
+        return None
+
+    if full_folderpath is None:
+        datefolder_path = max(os.listdir(run_id_path))
+        print("Using run: {}".format(datefolder_path))
+        full_folderpath = os.path.join(run_id_path, datefolder_path)
+    with open(os.path.join(full_folderpath, 'config.json'), 'r') as c:
+        run_config = json.load(c)
+
+    vocabulary_size = run_config['vocabulary_size']
+    embedding_size = run_config['embedding_size']
+
+    tf.reset_default_graph()
+    graph = tf.Graph()
+    with graph.as_default():
+
+        with tf.device('/cpu:0'):
+            with tf.name_scope('embeddings'):
+                embeddings = tf.Variable(
+                    tf.random_uniform([vocabulary_size, embedding_size], -1.0, 1.0)
+                )
+            with tf.name_scope('weights'):
+                nce_weights = tf.Variable(
+                    tf.truncated_normal(
+                        shape=[vocabulary_size, embedding_size],
+                        stddev=1.0 / math.sqrt(embedding_size),
+                    )
+                )
+            with tf.name_scope('biases'):
+                nce_biases = tf.Variable(
+                    tf.zeros([vocabulary_size])
+                )
+        # Compute the cosine similarity between minibatch examples and all embeddings.
+        norm = tf.sqrt(tf.reduce_sum(tf.square(embeddings), 1, keep_dims=True))
+        normalized_embeddings = embeddings / norm
+
+    with tf.Session(graph=graph) as sess:
+        saver = tf.train.Saver()
+        saver.restore(sess, os.path.join(full_folderpath, 'model.ckpt'))
+        print('model resotred!')
+
+        return dict(
+            embeddings=embeddings.eval(),
+            nce_weights=nce_weights.eval(),
+            nce_biases=nce_biases.eval(),
+            norm=norm.eval(),
+            normalized_embeddings=normalized_embeddings.eval(),
+        )
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
