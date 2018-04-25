@@ -11,6 +11,8 @@ from sklearn.manifold import TSNE
 from datetime import datetime
 import json
 
+from make_dataset import clean_data, get_regex_replacements
+
 LOGDIR = './logs'
 
 
@@ -50,7 +52,6 @@ def main(filename, run_id,
     print('Data size', len(vocabulary))
 
     # Build the dictionary and replace rare words with UNK token.
-
     data, count, dictionary, reversed_dictionary = build_dataset(vocabulary, vocabulary_size)
     # Check if our words of interest are common words in rap literature
     words_to_check = ['nigga', 'friend', 'brother', 'brotha', 'homie', 'pal', 'dog', 'bitch', 'gangster', 'gangsta']
@@ -255,6 +256,10 @@ def generate_batch(batch_size, num_skips, skip_window, data, data_index):
         context_words = [w for w in range(span) if w != skip_window]
         words_to_use = random.sample(context_words, num_skips)
         for j, context_word in enumerate(words_to_use):
+          print(i)
+          print(j)
+          print(window_buffer)
+          print(batch)
           batch[i * num_skips + j] = window_buffer[skip_window]
           labels[i * num_skips + j, 0] = window_buffer[context_word]
         if data_index == len(data):
@@ -302,14 +307,40 @@ def build_dataset(words, n_words):
     reversed_dictionary = dict(zip(dictionary.values(), dictionary.keys()))
     return data, count, dictionary, reversed_dictionary
 
+def make_prediction_dataset(text, num_skips, skip_window, word_map):
+    n_words = ['nigga', 'niggas', 'nigger', 'niggers']
+    cleaned_text, err = clean_data(text, check_for_http=False)
+    split_text = cleaned_text.split()
+    if err:
+        return []
+    idxs = []
+    vectorized = []
+    # Find each index
+    for idx, w in enumerate(split_text):
+        if w in n_words:
+            idxs.append(idx)
+        maybe_num = word_map.get(w)
+        vectorized.append(word_map['UNK'] if maybe_num is None else maybe_num)
+    # TODO: Left of here: Test this function!
 
-def load_weights(run_id, full_folderpath=None):
+    # Create example at each index
+    dataset = []
+    for idx in idxs:
+        print('generating example for index: {}'.format(idx))
+        dataset.extend(generate_batch(1, num_skips, skip_window, vectorized, idx))
+    return dataset
+
+
+def _predict(text, run_id, full_folderpath=None):
     """
-    Loads the weights from the specified run, taking the most recent run to be the model
-    :param run_id: string name of the run
+    Predict what the target word should be from the cleaned text
+    :param cleaned_text: text to predict on, with the expectation that replacement
+        words are in there
+    :param run_id: string that specifies the model to load
     :param full_folderpath: optional datetime stamp to specify the run in format YYYYMMDD-HHMM
-    :return: mapping embedding, norm of embeddings, normalized embeddings
+    :return:
     """
+
     dir_path = os.path.dirname(os.path.realpath(__file__))
     run_id_path = os.path.join(dir_path, 'logs', run_id)
     print(dir_path)
@@ -317,19 +348,51 @@ def load_weights(run_id, full_folderpath=None):
     if not os.path.isdir(run_id_path):
         print("invalid run_id: {}".format(run_id_path))
         return None
-
     if full_folderpath is None:
         datefolder_path = max(os.listdir(run_id_path))
         print("Using run: {}".format(datefolder_path))
         full_folderpath = os.path.join(run_id_path, datefolder_path)
     with open(os.path.join(full_folderpath, 'config.json'), 'r') as c:
         run_config = json.load(c)
+    with open(os.path.join(full_folderpath, 'metadata.tsv'), 'r') as m:
+        reversed_dictionary = {i: w for i, w in enumerate(m.readlines())}
+    dictionary = dict(zip(reversed_dictionary.values(), reversed_dictionary.keys()))
 
     vocabulary_size = run_config['vocabulary_size']
     embedding_size = run_config['embedding_size']
+    num_skips = run_config['num_skips']
+    skip_window = run_config['skip_window']
+    predict_data = [dictionary[w] for w in cleaned_text]
+    predict_dataset = generate_batch(1, num_skips, skip_window, predict_data, 0)
 
     tf.reset_default_graph()
     graph = tf.Graph()
+    session = tf.Session(graph=graph)
+    tensors = _load_tensors(vocabulary_size, embedding_size, graph)
+    with session as sess:
+        saver = tf.train.Saver()
+        saver.restore(sess, os.path.join(full_folderpath, 'model.ckpt'))
+        print('model resotred!')
+        embeddings = tensors['embeddings']
+        norm = tensors['norm']
+        normalized_embeddings = tensors['normalized_embeddings']
+        valid_embeddings = tf.nn.embedding_lookup(normalized_embeddings,
+                                                  predict_dataset)
+
+        similarity = tf.matmul(valid_embeddings, normalized_embeddings, transpose_b=True)
+
+
+
+
+def _load_tensors(vocabulary_size, embedding_size, graph):
+    """
+    Loads the weights from the specified run, taking the most recent run to be the model
+    :param full_folderpath: folderpath specifying where to load the model from
+    :param vocabulary_size: size of voacbulary used for the model
+    :param embedding_size: size of the embedding for the modle
+    :param graph: tensorflow computation graph
+    :return: mapping embedding, norm of embeddings, normalized embeddings
+    """
     with graph.as_default():
 
         with tf.device('/cpu:0'):
@@ -351,19 +414,13 @@ def load_weights(run_id, full_folderpath=None):
         # Compute the cosine similarity between minibatch examples and all embeddings.
         norm = tf.sqrt(tf.reduce_sum(tf.square(embeddings), 1, keep_dims=True))
         normalized_embeddings = embeddings / norm
-
-    with tf.Session(graph=graph) as sess:
-        saver = tf.train.Saver()
-        saver.restore(sess, os.path.join(full_folderpath, 'model.ckpt'))
-        print('model resotred!')
-
-        return dict(
-            embeddings=embeddings.eval(),
-            nce_weights=nce_weights.eval(),
-            nce_biases=nce_biases.eval(),
-            norm=norm.eval(),
-            normalized_embeddings=normalized_embeddings.eval(),
-        )
+    return dict(
+        embeddings=embeddings,
+        nce_weights=nce_weights,
+        nce_biases=nce_biases,
+        norm=norm,
+        normalized_embeddings=normalized_embeddings,
+    )
 
 
 if __name__ == '__main__':

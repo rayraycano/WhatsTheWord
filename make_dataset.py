@@ -29,11 +29,8 @@ def generate_dataset(name, min_songs_for_artist, write_mode='w'):
     # Fetch all the filenames that we will we read into our large dataset file
     docs = _sample_lyrics(min_songs_for_artist)
     f = open(os.path.join(datapath, name), write_mode)
-    regex_replacements = []
+    regex_replacements = get_regex_replacements()
 
-    # Load the replacements mapping into compiled regexes
-    for k in contraction_map:
-        regex_replacements.append(RegexReplacement(re.compile("(?i)" + k), contraction_map[k]))
     print("Num Docs: {}".format(len(docs)))
 
     # When downloading the data, rapgenius decided to not give me lyrics but rather urls when requesting
@@ -44,7 +41,7 @@ def generate_dataset(name, min_songs_for_artist, write_mode='w'):
     for doc in docs:
         with open(os.path.join(DB_PATH, doc), 'r') as d:
             txt = d.read()
-            cleaned, has_problem = _clean_data(regex_replacements, txt)
+            cleaned, has_problem = clean_data(txt, regex_replacements)
             if has_problem:
                 problem_artists.add(doc.split('/')[0])
                 problems += 1
@@ -57,6 +54,14 @@ def generate_dataset(name, min_songs_for_artist, write_mode='w'):
     # Note which artists we would need to redownload lyrics for.
     with open(os.path.join(datapath, 'problem_artists'), 'w') as f:
         f.write('\n'.join(problem_artists.difference(noproblem_artistis)))
+
+
+def get_regex_replacements() -> List[RegexReplacement]:
+    """ Helper function to compile regex replacements """
+    regex_replacements = []
+    for k in contraction_map:
+        regex_replacements.append(RegexReplacement(re.compile("(?i)" + k), contraction_map[k]))
+    return regex_replacements
 
 
 def _sample_lyrics(min_songs_for_artist):
@@ -81,17 +86,23 @@ def _sample_lyrics(min_songs_for_artist):
     return docs
 
 
-def _clean_data(regex_replacements: List[RegexReplacement], file_text):
+def clean_data(file_text, regex_replacements: List[RegexReplacement]=None, check_for_http=True):
     """
     Cleans up the data by replacing contractions and other slang, as well as cleaning up
     genius.com meta-notes like "[Verse 1]" etc.
-    :param regex_replacements:
-    :param file_text:
-    :return: Cleaned `file_text` as a string
+    :param file_text: text to be cleaned
+    :param regex_replacements: list of (RegexMatch, replacement) used to replace and normalize text
+    :param check_for_http: boolean that signals to do a quality check on the file text data to catch
+        bad data send down from genius.com. This flag should be turned off for prediction.
+    :return: (str, bool)
+        str: Cleaned `file_text` as a string
+        bool: True if error in text
     """
+    if regex_replacements is None:
+        regex_replacements = get_regex_replacements()
     brackets = "\\[.*\\]"
     removed_bracket_notes = re.sub(brackets, "", file_text)
-    if "https://" in file_text or len(file_text) == 0:
+    if (check_for_http and "https://" in file_text) or len(file_text) == 0:
 
         return "", True
 
