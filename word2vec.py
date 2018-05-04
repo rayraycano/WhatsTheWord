@@ -69,7 +69,7 @@ def main(filename, run_id,
     # Small test run here
     data_index = 0
     test_batch_size = 8
-    batch, labels, data_index = generate_batch(test_batch_size, 2, 1, data, data_index)
+    batch, model_inputs, labels, data_index = generate_batch(test_batch_size, 2, 1, data, data_index)
     print('batch: ', batch)
     print('labels: ', labels)
     for i in range(test_batch_size):
@@ -137,7 +137,8 @@ def main(filename, run_id,
                     inputs=embed,
                     num_sampled=num_sampled,
                     num_classes=vocabulary_size))
-            cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=out, labels=train_labels))
+            # Note: We use the train inputs here because that is the word we're trying to predict
+            cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=out, labels=train_inputs))
 
         tf.summary.scalar('nce_loss', nce_loss)
         with tf.name_scope('optimizer'):
@@ -165,24 +166,20 @@ def main(filename, run_id,
         print('Started from the bottom')
 
         average_loss = 0
-        model_data_index = 0
         for step in range(num_steps):
-            batch_inputs, batch_labels, data_index = generate_batch(
+            batch_inputs, model_inputs, batch_labels, new_data_index = generate_batch(
                 batch_size=batch_size,
                 skip_window=skip_window,
                 num_skips=num_skips,
                 data=data,
                 data_index=data_index,
             )
-            train_inputs, model_data_index = generate_model_batch(
-                batch_size=batch_size,
-                memory=8,
-                data=data,
-                data_index=model_data_index,
-            )
+
+            data_index = new_data_index
             feed_dict = {
                 train_inputs: batch_inputs,
                 train_labels: batch_labels,
+                train_model_inputs: model_inputs,
             }
             run_metadata = tf.RunMetadata()
             _, summary, loss_result = session.run(
@@ -303,7 +300,7 @@ def generate_model_batch(batch_size, memory, data, data_index, lookahead=False):
     return batch_array, data_index + batch_size
 
 
-def generate_batch(batch_size, num_skips, skip_window, data, data_index):
+def generate_batch(batch_size, num_skips, skip_window, data, data_index, lookahead=False):
     """
     Again, scooped up from the tensorflow tutorial
     :param batch_size: Number of examples to generate
@@ -316,6 +313,7 @@ def generate_batch(batch_size, num_skips, skip_window, data, data_index):
     assert batch_size % num_skips == 0
     assert num_skips <= 2 * skip_window
     batch = np.ndarray(shape=(batch_size), dtype=np.int32)
+    model_batch = np.ndarray(shape=(batch_size, skip_window * 2), dtype=np.int32)
     labels = np.ndarray(shape=(batch_size, 1), dtype=np.int32)
     span = 2 * skip_window + 1  # [ skip_window target skip_window ]
     window_buffer = collections.deque(maxlen=span)
@@ -328,8 +326,8 @@ def generate_batch(batch_size, num_skips, skip_window, data, data_index):
         words_to_use = random.sample(context_words, num_skips)
         for j, context_word in enumerate(words_to_use):
           batch[i * num_skips + j] = window_buffer[skip_window]
-
           labels[i * num_skips + j, 0] = window_buffer[context_word]
+          model_batch[i*num_skips+j] = _make_model_example(list(window_buffer), span)
         if data_index == len(data):
           window_buffer.extend(data[0:span])
           data_index = span
@@ -338,8 +336,15 @@ def generate_batch(batch_size, num_skips, skip_window, data, data_index):
           data_index += 1
     # Backtrack a little bit to avoid skipping words in the end of a batch
     data_index = (data_index + len(data) - span) % len(data)
-    return batch, labels, data_index
+    model_batch = np.array(model_batch)
+    print(model_batch.shape)
+    return batch, model_batch, labels, data_index
 
+
+def _make_model_example(window_buffer, span):
+    if len(window_buffer) == span:
+        return window_buffer[0:span // 2] + window_buffer[(span // 2 + 1):]
+    return window_buffer.copy()[1:] + [0] * (span - len(window_buffer))
 
 def read_data(filename):
     """Extract the first file enclosed in a zip file as a list of words."""
