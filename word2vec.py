@@ -10,6 +10,7 @@ from tensorflow.contrib.tensorboard.plugins import projector
 from sklearn.manifold import TSNE
 from datetime import datetime
 import json
+import models
 
 from make_dataset import clean_data, get_regex_replacements
 
@@ -23,7 +24,9 @@ def main(filename, run_id,
          skip_window=1,
          num_skips=2,
          num_sampled=64,
-         num_steps=50000):
+         num_steps=50000,
+         model_type='lstm',
+         **kwargs):
     """
     :param filename: Name of the data file
     :param run_id: Name of the run
@@ -34,6 +37,7 @@ def main(filename, run_id,
     :param num_skips: How many times to reuse an input to generate a label.
     :param num_sampled: Number of negative examples to sample.
     :param num_steps: Number of training iterations to go through.
+    :param model_type: type of model to run
 
     Saves the model, lookup metadata, and tsne clustering after training a model off
     of a word embedding.
@@ -85,23 +89,36 @@ def main(filename, run_id,
     with graph.as_default():
         with tf.name_scope('inputs'):
             train_inputs = tf.placeholder(tf.int32, shape=[batch_size])
+            train_model_inputs = tf.placeholder(tf.float32, shape=[batch_size, 8, embedding_size])
             train_labels = tf.placeholder(tf.int32, shape=[batch_size, 1])
             valid_dataset = tf.constant(valid_examples, dtype=tf.int32)
 
         with tf.device('/cpu:0'):
+            # tensors = model.load_tensors()
             with tf.name_scope('embeddings'):
                 embeddings = tf.Variable(
                     tf.random_uniform([vocabulary_size, embedding_size], -1.0, 1.0)
                 )
                 embed = tf.nn.embedding_lookup(embeddings, train_inputs)
-            with tf.name_scope('weights'):
+                model_embed = tf.nn.embedding_lookup(embeddings, train_model_inputs)
+            with tf.name_scope('model'):
+                model = get_model(model_type, input_tensor=model_embed,
+                                  vocabulary_size=vocabulary_size,
+                                  embedding_size=embedding_size,
+                                  skip_window=skip_window,
+                                  num_skips=num_skips,
+                                  num_sampled=num_sampled,
+                                  num_steps=num_steps, **kwargs)
+                out = model.load_tesnsors()
+            with tf.name_scope('nce_weights'):
                 nce_weights = tf.Variable(
                     tf.truncated_normal(
                         shape=[vocabulary_size, embedding_size],
                         stddev=1.0/math.sqrt(embedding_size),
                     )
                 )
-            with tf.name_scope('biases'):
+
+            with tf.name_scope('nce_biases'):
                 nce_biases = tf.Variable(
                     tf.zeros([vocabulary_size])
                 )
@@ -112,7 +129,7 @@ def main(filename, run_id,
         # Explanation of the meaning of NCE loss:
         #   http://mccormickml.com/2016/04/19/word2vec-tutorial-the-skip-gram-model/
         with tf.name_scope('loss'):
-            loss = tf.reduce_mean(
+            nce_loss = tf.reduce_mean(
                 tf.nn.nce_loss(
                     weights=nce_weights,
                     biases=nce_biases,
@@ -120,9 +137,12 @@ def main(filename, run_id,
                     inputs=embed,
                     num_sampled=num_sampled,
                     num_classes=vocabulary_size))
-        tf.summary.scalar('loss', loss)
+            cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=out, labels=train_labels))
+
+        tf.summary.scalar('nce_loss', nce_loss)
         with tf.name_scope('optimizer'):
-            optimizer = tf.train.GradientDescentOptimizer(1.0).minimize(loss)
+            nce_optimizer = tf.train.GradientDescentOptimizer(1.0).minimize(nce_loss)
+            cost_optimizer = tf.train.AdamOptimizer(learning_rate=0.001).minimize(cost)
 
         # Compute the cosine similarity between minibatch examples and all embeddings.
         norm = tf.sqrt(tf.reduce_sum(tf.square(embeddings), 1, keep_dims=True))
@@ -145,6 +165,7 @@ def main(filename, run_id,
         print('Started from the bottom')
 
         average_loss = 0
+        model_data_index = 0
         for step in range(num_steps):
             batch_inputs, batch_labels, data_index = generate_batch(
                 batch_size=batch_size,
@@ -153,13 +174,19 @@ def main(filename, run_id,
                 data=data,
                 data_index=data_index,
             )
+            train_inputs, model_data_index = generate_model_batch(
+                batch_size=batch_size,
+                memory=8,
+                data=data,
+                data_index=model_data_index,
+            )
             feed_dict = {
                 train_inputs: batch_inputs,
                 train_labels: batch_labels,
             }
             run_metadata = tf.RunMetadata()
             _, summary, loss_result = session.run(
-                [optimizer, merged, loss],
+                [nce_optimizer, merged, nce_loss],
                 feed_dict=feed_dict,
                 run_metadata=run_metadata
             )
@@ -232,6 +259,50 @@ def plot_with_labels(low_dim_embs, labels, filename):
     plt.savefig(filename)
 
 
+def get_model(model_name, **kwargs):
+    if model_name == 'lstm':
+        return models.LSTMModel(**kwargs)
+    if model_name == 'cnn':
+        return models.CNNModel(**kwargs)
+    raise Exception('Invalid Model Type: {}'.format(model_name))
+
+
+def generate_model_batch(batch_size, memory, data, data_index, lookahead=False):
+    """
+    Generate the batch for a CNN or RNN model
+    :param batch_size: int: size of the batch
+    :param memory: int: number of words
+    :param data: dataset of word IDs
+    :param data_index: where to start our batch
+    :return: tuple (
+        batch: batch_size x memory
+        data_index: where we leave off
+    )
+    """
+    batch = []
+    for i in range(batch_size):
+
+        start_idx = max(0, data_index - memory)
+        front_window = data[start_idx:data_index].copy()
+        while len(front_window) < memory:
+            front_window.append(0)
+
+        if lookahead:
+            end_index = min(len(data), data_index + memory + 1)
+            end_window = data[data_index + 1: end_index]
+            while len(end_window) < memory:
+                end_window.append(0)
+            window = front_window + end_window
+            batch.append(window)
+        else:
+            batch.append(front_window)
+        data_index += 1
+    batch_array = np.array(batch)
+    print(batch_array.shape)
+    assert(batch_array.shape == (batch_size, memory * (1 + lookahead)))
+    return batch_array, data_index + batch_size
+
+
 def generate_batch(batch_size, num_skips, skip_window, data, data_index):
     """
     Again, scooped up from the tensorflow tutorial
@@ -256,11 +327,8 @@ def generate_batch(batch_size, num_skips, skip_window, data, data_index):
         context_words = [w for w in range(span) if w != skip_window]
         words_to_use = random.sample(context_words, num_skips)
         for j, context_word in enumerate(words_to_use):
-          print(i)
-          print(j)
-          print(window_buffer)
-          print(batch)
           batch[i * num_skips + j] = window_buffer[skip_window]
+
           labels[i * num_skips + j, 0] = window_buffer[context_word]
         if data_index == len(data):
           window_buffer.extend(data[0:span])
@@ -307,7 +375,55 @@ def build_dataset(words, n_words):
     reversed_dictionary = dict(zip(dictionary.values(), dictionary.keys()))
     return data, count, dictionary, reversed_dictionary
 
-def make_prediction_dataset(text, num_skips, skip_window, word_map):
+def get_similarity(words, run_id, full_folderpath=None):
+    run_config, dictionary, reversed_dictionary, full_folderpath = load_run_data(run_id, full_folderpath)
+    if run_config is None:
+        return None
+    vocabulary_size = run_config['vocabulary_size']
+    embedding_size = run_config['embedding_size']
+    tf.reset_default_graph()
+    graph = tf.Graph()
+    session = tf.Session(graph=graph)
+    tensors = _load_tensors(vocabulary_size, embedding_size, graph)
+    valid_words = [x + '\n' for x in words if x + '\n' in dictionary.keys()]
+    print('valid words: {}'.format(valid_words))
+    print('dictionary keys: {}'.format(list(dictionary.keys())[:10]))
+    vectorized = [dictionary[x] for x in valid_words]
+    with session as sess:
+        predict_dataset = tf.constant(vectorized, dtype=tf.int32)
+        saver = tf.train.Saver()
+        saver.restore(sess, os.path.join(full_folderpath, 'model.ckpt'))
+        print('model resotred!')
+        embeddings = tensors['embeddings']
+        norm = tensors['norm']
+        normalized_embeddings = tensors['normalized_embeddings']
+        valid_embeddings = tf.nn.embedding_lookup(normalized_embeddings,
+                                                  predict_dataset)
+
+        similarity = tf.matmul(valid_embeddings, normalized_embeddings, transpose_b=True)
+        sim = similarity.eval()
+        for i in range(len(vectorized)):
+            valid_word = reversed_dictionary[vectorized[i]]
+            top_k = 8  # number of nearest neighbors
+            nearest = (-sim[i, :]).argsort()[1:top_k + 1]
+            log_str = 'Nearest to %s:' % valid_word
+            for k in range(top_k):
+                close_word = reversed_dictionary[nearest[k]]
+                log_str = '%s %s,' % (log_str, close_word)
+            print(log_str)
+
+
+
+def _make_prediction_dataset(text, skip_window, word_map):
+    """
+    DEPRECATED for the time being due to a misunderstanding
+
+    cleans text and converts it into a dataset
+    :param text:
+    :param skip_window:
+    :param word_map:
+    :return:
+    """
     n_words = ['nigga', 'niggas', 'nigger', 'niggers']
     cleaned_text, err = clean_data(text, check_for_http=False)
     split_text = cleaned_text.split()
@@ -326,8 +442,19 @@ def make_prediction_dataset(text, num_skips, skip_window, word_map):
     # Create example at each index
     dataset = []
     for idx in idxs:
+        instance_dataset = []
         print('generating example for index: {}'.format(idx))
-        dataset.extend(generate_batch(1, num_skips, skip_window, vectorized, idx))
+        print('vecotrized: {}'.format(vectorized))
+        context_idx = max(idx - skip_window, 0)
+        while context_idx < idx:
+            instance_dataset.append(vectorized[context_idx])
+            context_idx += 1
+        context_idx = min(idx + skip_window, len(vectorized) - 1)
+        while context_idx > idx:
+            instance_dataset.append(vectorized[context_idx])
+            context_idx -= 1
+        print('instance dataset for idx {}: {}'.format(idx, instance_dataset))
+        dataset.append(instance_dataset)
     return dataset
 
 
@@ -341,22 +468,10 @@ def _predict(text, run_id, full_folderpath=None):
     :return:
     """
 
-    dir_path = os.path.dirname(os.path.realpath(__file__))
-    run_id_path = os.path.join(dir_path, 'logs', run_id)
-    print(dir_path)
-    print(run_id_path)
-    if not os.path.isdir(run_id_path):
-        print("invalid run_id: {}".format(run_id_path))
+    run_config, dictionary, reversed_dictionary, full_folderpath = load_run_data(run_id, full_folderpath)
+
+    if not run_config is None:
         return None
-    if full_folderpath is None:
-        datefolder_path = max(os.listdir(run_id_path))
-        print("Using run: {}".format(datefolder_path))
-        full_folderpath = os.path.join(run_id_path, datefolder_path)
-    with open(os.path.join(full_folderpath, 'config.json'), 'r') as c:
-        run_config = json.load(c)
-    with open(os.path.join(full_folderpath, 'metadata.tsv'), 'r') as m:
-        reversed_dictionary = {i: w for i, w in enumerate(m.readlines())}
-    dictionary = dict(zip(reversed_dictionary.values(), reversed_dictionary.keys()))
 
     vocabulary_size = run_config['vocabulary_size']
     embedding_size = run_config['embedding_size']
@@ -381,8 +496,34 @@ def _predict(text, run_id, full_folderpath=None):
 
         similarity = tf.matmul(valid_embeddings, normalized_embeddings, transpose_b=True)
 
+def load_run_data(run_id, full_folderpath=None):
+    """
+    Loads the run hyperparameters and dictionary mappings
+    :param run_id: name of run
+    :param full_folderpath: optional specification of full folderpath to pull run from
+    :return:
+        run_config: dictionary[string]:value -- specifies run hyperparameters
+        dictionary: dictionary[string]: number -- maps words to lookup number
+        reversed_dictionary: dictionary[number]: string -- maps numbers to vocab words
+    """
+    dir_path = os.path.dirname(os.path.realpath(__file__))
+    run_id_path = os.path.join(dir_path, 'logs', run_id)
+    print(dir_path)
+    print(run_id_path)
+    if not os.path.isdir(run_id_path):
+        print("invalid run_id: {}".format(run_id_path))
+        return None, None, None, None
+    if full_folderpath is None:
+        datefolder_path = max(os.listdir(run_id_path))
+        print("Using run: {}".format(datefolder_path))
+        full_folderpath = os.path.join(run_id_path, datefolder_path)
+    with open(os.path.join(full_folderpath, 'config.json'), 'r') as c:
+        run_config = json.load(c)
+    with open(os.path.join(full_folderpath, 'metadata.tsv'), 'r') as m:
+        reversed_dictionary = {i: w for i, w in enumerate(m.readlines())}
+    dictionary = dict(zip(reversed_dictionary.values(), reversed_dictionary.keys()))
 
-
+    return run_config, dictionary, reversed_dictionary, full_folderpath
 
 def _load_tensors(vocabulary_size, embedding_size, graph):
     """
