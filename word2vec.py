@@ -89,7 +89,7 @@ def main(filename, run_id,
     with graph.as_default():
         with tf.name_scope('inputs'):
             train_inputs = tf.placeholder(tf.int32, shape=[batch_size])
-            train_model_inputs = tf.placeholder(tf.float32, shape=[batch_size, 8, embedding_size])
+            train_model_inputs = tf.placeholder(tf.int32, shape=[batch_size, 8])
             train_labels = tf.placeholder(tf.int32, shape=[batch_size, 1])
             valid_dataset = tf.constant(valid_examples, dtype=tf.int32)
 
@@ -138,7 +138,11 @@ def main(filename, run_id,
                     num_sampled=num_sampled,
                     num_classes=vocabulary_size))
             # Note: We use the train inputs here because that is the word we're trying to predict
-            cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=out, labels=train_inputs))
+            one_hot_labels = tf.one_hot(train_inputs, vocabulary_size)
+            print(one_hot_labels)
+            cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
+                logits=out,
+                labels=one_hot_labels))
 
         tf.summary.scalar('nce_loss', nce_loss)
         with tf.name_scope('optimizer'):
@@ -166,6 +170,7 @@ def main(filename, run_id,
         print('Started from the bottom')
 
         average_loss = 0
+        average_cost = 0
         for step in range(num_steps):
             batch_inputs, model_inputs, batch_labels, new_data_index = generate_batch(
                 batch_size=batch_size,
@@ -182,21 +187,25 @@ def main(filename, run_id,
                 train_model_inputs: model_inputs,
             }
             run_metadata = tf.RunMetadata()
-            _, summary, loss_result = session.run(
-                [nce_optimizer, merged, nce_loss],
+            _, _, summary, loss_result, cost_result = session.run(
+                [nce_optimizer, cost_optimizer, merged, nce_loss, cost],
                 feed_dict=feed_dict,
                 run_metadata=run_metadata
             )
             average_loss += loss_result
+            average_cost += cost_result
             writer.add_summary(summary, step)
             if step == (num_steps - 1):
                 writer.add_run_metadata(run_metadata, 'step%d' % step)
             if step % 2000 == 0:
                 if step > 0:
                     average_loss /= 2000
+                    average_cost /= 2000
                 # The average loss is an estimate of the loss over the last 2000 batches.
                 print('Average loss at step ', step, ': ', average_loss)
+                print('Average cost at step ', step, ': -----------', average_cost)
                 average_loss = 0
+                average_cost = 0
 
             if step % 10000 == 0:
                 sim = similarity.eval()
@@ -228,7 +237,7 @@ def main(filename, run_id,
 
     writer.close()
 
-    plot_tsne(final_embeddings, 1000, reversed_dictionary, run_dir)
+    plot_tsne(final_embeddings, 500, reversed_dictionary, run_dir)
 
 
 def plot_tsne(embeddings, plot_only, reversed_dictionary, run_dir):
@@ -337,7 +346,6 @@ def generate_batch(batch_size, num_skips, skip_window, data, data_index, lookahe
     # Backtrack a little bit to avoid skipping words in the end of a batch
     data_index = (data_index + len(data) - span) % len(data)
     model_batch = np.array(model_batch)
-    print(model_batch.shape)
     return batch, model_batch, labels, data_index
 
 

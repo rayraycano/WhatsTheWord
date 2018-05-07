@@ -50,7 +50,12 @@ class CNNModel(Model):
         """
         Initialize a Convolutional Nerual Net Model
         :param input_tensor: batch_size x window_size x embedding_size
-        :param kwargs:
+        :param kwargs: dictionary specifying dimensions. The arguments separate form those already
+        being passed in are
+            window_size: filter size
+            step_size: step size when sliding the filter
+            output_dim: output channels after conv
+            n_input: size of context window
         """
         Model.__init__(self, input_tensor, **kwargs)
         self.embedding_size = kwargs['embedding_size']
@@ -66,17 +71,27 @@ class CNNModel(Model):
         with tf.name_scope('conv_weights'):
             self.weights = [
                 tf.Variable(tf.random_normal([self.window_size, self.embedding_size, self.output_dim])),
-                tf.Variable(tf.random_normal([self.output_dim * 4, self.vocabulary_size])),
+                tf.Variable(tf.random_normal([self.output_dim * 8, self.vocabulary_size])),
             ]
+
+            print(self.input_tensor)
+            print(self.weights[0])
             # batch_size x 4 x output_dim
             self.conv = tf.nn.conv1d(self.input_tensor, self.weights[0], stride=self.step_size, padding='SAME')
+            print(self.conv)
+
         with tf.name_scope('conv_biases'):
             self.biases = [
-                tf.Variable(tf.random_normal([4, self.output_dim])),
+                tf.Variable(tf.random_normal([8, self.output_dim])),
                 tf.Variable(tf.random_normal([self.vocabulary_size])),
             ]
         with tf.name_scope('calulations'):
-            self.activations = tf.nn.relu(self.conv + self.biases)
-            flattened = tf.contrib.layers.flatten(self.activations) # batch-size x (4 * output_dim)
+            print(self.biases[0])
+            self.activations = tf.nn.relu(self.conv + self.biases[0])
+            flattened = tf.contrib.layers.flatten(self.activations) # batch-size x (8 * output_dim)
+            print(flattened)
+            print(self.weights[1])
+            print(self.biases[1])
             self.out = tf.matmul(flattened, self.weights[1]) + self.biases[1]
+            print(self.out)
         return self.out
