@@ -69,4 +69,5 @@ contraction_map = {
     "might've": "might have",
     "must've": "must have",
     "let's": "let us",
+    "ain't": "aint",
 }

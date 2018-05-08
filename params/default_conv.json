@@ -11,5 +11,6 @@
   "window_size": 2,
   "step_size": 1,
   "output_dim": 256,
-  "n_input": 8
+  "model_context": 4,
+  "lookahead": true
 }
