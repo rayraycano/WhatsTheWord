@@ -59,10 +59,11 @@ class CNNModel(Model):
         """
         Model.__init__(self, input_tensor, **kwargs)
         self.embedding_size = kwargs['embedding_size']
-        self.n_input = kwargs['n_input'] # window size of words: start off with size 8
-        self.window_size = kwargs['window_size']  # start off with 2
+        self.context = kwargs['model_context'] * (1 + kwargs['lookahead'])
+        self.window_size = kwargs['window_size']
         self.vocabulary_size = kwargs['vocabulary_size']
         self.step_size = kwargs['step_size']
+        self.activation_length = self.context // self.step_size
         self.output_dim = kwargs['output_dim']
         self.weights = self.conv = self.biases = self.filter = self.activations = self.out = None
 
@@ -71,18 +72,18 @@ class CNNModel(Model):
         with tf.name_scope('conv_weights'):
             self.weights = [
                 tf.Variable(tf.random_normal([self.window_size, self.embedding_size, self.output_dim])),
-                tf.Variable(tf.random_normal([self.output_dim * 8, self.vocabulary_size])),
+                tf.Variable(tf.random_normal([self.output_dim * self.activation_length, self.vocabulary_size])),
             ]
 
             print(self.input_tensor)
             print(self.weights[0])
-            # batch_size x 4 x output_dim
+            # batch_size x (n_input / step_size) x output_dim
             self.conv = tf.nn.conv1d(self.input_tensor, self.weights[0], stride=self.step_size, padding='SAME')
             print(self.conv)
 
         with tf.name_scope('conv_biases'):
             self.biases = [
-                tf.Variable(tf.random_normal([8, self.output_dim])),
+                tf.Variable(tf.random_normal([self.activation_length, self.output_dim])),
                 tf.Variable(tf.random_normal([self.vocabulary_size])),
             ]
         with tf.name_scope('calulations'):

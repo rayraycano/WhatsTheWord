@@ -26,6 +26,8 @@ def main(filename, run_id,
          num_sampled=64,
          num_steps=50000,
          model_type='lstm',
+         model_context=4,
+         lookahead=True,
          **kwargs):
     """
     :param filename: Name of the data file
@@ -69,7 +71,9 @@ def main(filename, run_id,
     # Small test run here
     data_index = 0
     test_batch_size = 8
-    batch, model_inputs, labels, data_index = generate_batch(test_batch_size, 2, 1, data, data_index)
+    batch, model_inputs, labels, data_index = generate_batch(
+        test_batch_size, 2, 1, data, data_index, model_context, lookahead
+    )
     print('batch: ', batch)
     print('labels: ', labels)
     for i in range(test_batch_size):
@@ -108,7 +112,9 @@ def main(filename, run_id,
                                   skip_window=skip_window,
                                   num_skips=num_skips,
                                   num_sampled=num_sampled,
-                                  num_steps=num_steps, **kwargs)
+                                  num_steps=num_steps,
+                                  model_context=model_context,
+                                  lookahead=lookahead, **kwargs)
                 out = model.load_tesnsors()
             with tf.name_scope('nce_weights'):
                 nce_weights = tf.Variable(
@@ -178,6 +184,8 @@ def main(filename, run_id,
                 num_skips=num_skips,
                 data=data,
                 data_index=data_index,
+                model_context=model_context,
+                lookahead=lookahead,
             )
 
             data_index = new_data_index
@@ -273,62 +281,30 @@ def get_model(model_name, **kwargs):
     raise Exception('Invalid Model Type: {}'.format(model_name))
 
 
-def generate_model_batch(batch_size, memory, data, data_index, lookahead=False):
-    """
-    Generate the batch for a CNN or RNN model
-    :param batch_size: int: size of the batch
-    :param memory: int: number of words
-    :param data: dataset of word IDs
-    :param data_index: where to start our batch
-    :return: tuple (
-        batch: batch_size x memory
-        data_index: where we leave off
-    )
-    """
-    batch = []
-    for i in range(batch_size):
-
-        start_idx = max(0, data_index - memory)
-        front_window = data[start_idx:data_index].copy()
-        while len(front_window) < memory:
-            front_window.append(0)
-
-        if lookahead:
-            end_index = min(len(data), data_index + memory + 1)
-            end_window = data[data_index + 1: end_index]
-            while len(end_window) < memory:
-                end_window.append(0)
-            window = front_window + end_window
-            batch.append(window)
-        else:
-            batch.append(front_window)
-        data_index += 1
-    batch_array = np.array(batch)
-    print(batch_array.shape)
-    assert(batch_array.shape == (batch_size, memory * (1 + lookahead)))
-    return batch_array, data_index + batch_size
-
-
-def generate_batch(batch_size, num_skips, skip_window, data, data_index, lookahead=False):
+def generate_batch(batch_size, num_skips, skip_window, data, data_index, model_context, lookahead=True):
     """
     Again, scooped up from the tensorflow tutorial
     :param batch_size: Number of examples to generate
     :param num_skips: How many times to reuse an input to generate a label.
     :param skip_window: How many words to consider left and right.
-    :param data:
-    :param data_index:
+    :param data: dataset
+    :param data_index: where to satart generating the batch
+    :param lookahead: whether or not to use words following the input word for context
     :return:
     """
     assert batch_size % num_skips == 0
     assert num_skips <= 2 * skip_window
     batch = np.ndarray(shape=(batch_size), dtype=np.int32)
-    model_batch = np.ndarray(shape=(batch_size, skip_window * 2), dtype=np.int32)
+    model_batch = np.ndarray(shape=(batch_size, model_context * (1 + lookahead)), dtype=np.int32)
     labels = np.ndarray(shape=(batch_size, 1), dtype=np.int32)
     span = 2 * skip_window + 1  # [ skip_window target skip_window ]
+    model_span = 2 * model_context + 1
     window_buffer = collections.deque(maxlen=span)
+    model_buffer = collections.deque(maxlen=model_span)
     if data_index + span > len(data):
         data_index = 0
     window_buffer.extend(data[data_index:data_index + span])
+    model_buffer.extend(data[data_index:data_index + model_span])
     data_index += span
     for i in range(batch_size // num_skips):
         context_words = [w for w in range(span) if w != skip_window]
@@ -336,7 +312,7 @@ def generate_batch(batch_size, num_skips, skip_window, data, data_index, lookahe
         for j, context_word in enumerate(words_to_use):
           batch[i * num_skips + j] = window_buffer[skip_window]
           labels[i * num_skips + j, 0] = window_buffer[context_word]
-          model_batch[i*num_skips+j] = _make_model_example(list(window_buffer), span)
+          model_batch[i*num_skips+j] = _make_model_example(list(model_buffer), model_span, lookahead)
         if data_index == len(data):
           window_buffer.extend(data[0:span])
           data_index = span
@@ -349,10 +325,12 @@ def generate_batch(batch_size, num_skips, skip_window, data, data_index, lookahe
     return batch, model_batch, labels, data_index
 
 
-def _make_model_example(window_buffer, span):
-    if len(window_buffer) == span:
-        return window_buffer[0:span // 2] + window_buffer[(span // 2 + 1):]
-    return window_buffer.copy()[1:] + [0] * (span - len(window_buffer))
+def _make_model_example(model_buffer, span, lookahead):
+    if len(model_buffer) == span:
+        first_half = model_buffer[0:span // 2]
+        return first_half + model_buffer[(span // 2 + 1):] if lookahead else first_half
+    raise Exception("Unexpected model_buffer Length {}".format(len(model_buffer)))
+    # return window_buffer.copy()[1:] + [0] * (span - len(window_buffer))
 
 def read_data(filename):
     """Extract the first file enclosed in a zip file as a list of words."""
