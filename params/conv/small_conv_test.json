@@ -1,0 +1,16 @@
+{
+  "datafile": "cleaned_data/20180418/clean90.txt",
+  "batch_size": 16,
+  "embedding_size": 128,
+  "skip_window": 4,
+  "num_skips": 1,
+  "num_sampled": 64,
+  "num_steps": 2500,
+  "vocabulary_size": 2500,
+  "model_type": "cnn",
+  "window_size": 2,
+  "step_size": 1,
+  "output_dim": 64,
+  "model_context": 4,
+  "lookahead": true
+}
