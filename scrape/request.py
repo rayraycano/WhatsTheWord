@@ -7,6 +7,7 @@ import os
 import datetime
 import math
 from numpy import random
+from multiprocessing import Pool
 
 logger = logging.getLogger(__name__)
 handler = logging.FileHandler('logs/scrap.request.log')
@@ -18,6 +19,7 @@ base_url = "https://api.genius.com"
 
 token = os.environ['GENIUS_TOKEN']
 MAX_SONGS_PER_REQUEST = 50
+NUM_PARTITIONS = 16
 
 f = open('./db/artist_maps/artist_map.json', 'r')
 ARTIST_MAP = json.load(f)
@@ -30,14 +32,15 @@ def get_all_urls(min_id=0):
         download_lyrics_for_artist(artist, db_subfolder, float('inf'), save_urls_only=True)
 
 
-def download_lyrics_from_urls(sample_rate=0.2, start=1, max_number=1000, artists=None):
+def download_lyrics_from_urls(sample_rate=0.2, start=1, max_number=1000, artists=None, db_subfolder=None):
 
     # Get a the top `max_number` of artists from genius's internal artist mapping
-    qualified_artists = filter(
-        lambda x: start < ARTIST_MAP[x] < max_number, ARTIST_MAP.keys()
-    ) if artists is None else artists
-    db_subfolder = datetime.datetime.now().strftime('%Y%m%d')
-    for artist in qualified_artists:
+    idx_artist_tups = [(idx, artist) for artist, idx in ARTIST_MAP.items() if idx >= start and idx <= max_number]
+    sorted_artists = [x[1] for x in sorted(idx_artist_tups)]
+    print("num artists in dataset: {}".format(len(sorted_artists)))
+
+    db_subfolder = datetime.datetime.now().strftime('%Y%m%d') if db_subfolder is None else db_subfolder
+    for artist in sorted_artists:
         # TODO: Move artist_map out of db
         if artist == 'artist_map':
             continue
@@ -45,14 +48,28 @@ def download_lyrics_from_urls(sample_rate=0.2, start=1, max_number=1000, artists
         with open('./db/{}/urls.txt'.format(artist), 'r') as g:
             urls = g.read().split('\n')
         print("len(urls): {}".format(len(urls)))
-        print("sample rate: `{}".format(sample_rate))
-        print("ceil call: {}".format(math.ceil(len(urls) * sample_rate)))
+        print("sample rate: {}".format(sample_rate))
         num_samples = int(math.ceil(len(urls) * sample_rate))
+        print("ceil call: {}".format(num_samples))
         sampled_songs = random.choice(urls, num_samples, False)
-        titles_and_urls = [(url.replace('https://genius.com/', ''), _get_lyrics_for_url(url)) for url in sampled_songs]
-        print("Writing for artist id: {}".format(ARTIST_MAP[artist]))
-        _write_songs(titles_and_urls, artist, db_subfolder)
+        partitions = []
+        partition_size = len(sampled_songs) // NUM_PARTITIONS
+        for i in range(NUM_PARTITIONS - 1):
+            partitions.append(list(sampled_songs[i * partition_size:(i+1) * partition_size]))
+        partitions[-1].extend(sampled_songs[(NUM_PARTITIONS - 1) * partition_size:])
+        get_and_write_pool = Pool(NUM_PARTITIONS)
+        f_args = [{"songs": p, "artist": artist, "dbs": db_subfolder} for p in partitions]
+        print(f_args)
+        get_and_write_pool.map(_get_and_write, f_args)
 
+
+def _get_and_write(f_args):
+    songs = f_args['songs']
+    artist = f_args['artist']
+    db_subfolder = f_args['dbs']
+    titles_and_urls = [(url.replace('https://genius.com/', ''), _get_lyrics_for_url(url)) for url in songs]
+    print("Writing for artist id: {}".format(ARTIST_MAP[artist]))
+    _write_songs(titles_and_urls, artist, db_subfolder)
 
 def download_lyrics_for_artist(artist, db_subfolder, number_of_songs=20, save_urls_only=False):
     print('here')
@@ -87,6 +104,7 @@ def _write_songs(songs, artist, parentfolder):
     for idx, (title, lyrics) in enumerate(songs):
         modified_title = title.replace('/', '_').replace(' ', '_')
         with open(os.path.join(artist_path + '/{}_{}.txt'.format(modified_title, idx)), 'w') as g:
+            print('writing lyrics for {}'.format(title))
             g.write(lyrics)
     return
 
@@ -158,6 +176,7 @@ def _get_lyrics_for_url(url):
     if url == '':
         logger.warn("Yikes! No URL")
         return ''
+    print('fetching lyrics for {}'.format(url))
     web_request = requests.request(
         "GET",
         url,
