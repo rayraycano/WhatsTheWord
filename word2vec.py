@@ -87,6 +87,7 @@ def main(filename, run_id, logdir,
     valid_window = 100  # Only pick dev samples in the head of the distribution.
     valid_examples = np.random.choice(valid_window, valid_size, replace=False)
 
+    ######### TODO: Factor this out into a training method for the conv net
     graph = tf.Graph()
 
     with graph.as_default():

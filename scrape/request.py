@@ -25,13 +25,18 @@ f.close()
 
 # edmund is cool
 def get_all_urls(min_id=0):
+    db_subfolder = datetime.datetime.now().strftime('%Y%m%d')
     for artist in filter(lambda x: ARTIST_MAP[x] > min_id, ARTIST_MAP.keys()):
-        download_lyrics(artist, float('inf'), save_urls_only=True)
+        download_lyrics_for_artist(artist, db_subfolder, float('inf'), save_urls_only=True)
 
 
 def download_lyrics_from_urls(sample_rate=0.2, start=1, max_number=1000, artists=None):
 
-    qualified_artists = filter(lambda x: start < ARTIST_MAP[x] < max_number, ARTIST_MAP.keys()) if artists is None else artists
+    # Get a the top `max_number` of artists from genius's internal artist mapping
+    qualified_artists = filter(
+        lambda x: start < ARTIST_MAP[x] < max_number, ARTIST_MAP.keys()
+    ) if artists is None else artists
+    db_subfolder = datetime.datetime.now().strftime('%Y%m%d')
     for artist in qualified_artists:
         # TODO: Move artist_map out of db
         if artist == 'artist_map':
@@ -46,12 +51,13 @@ def download_lyrics_from_urls(sample_rate=0.2, start=1, max_number=1000, artists
         sampled_songs = random.choice(urls, num_samples, False)
         titles_and_urls = [(url.replace('https://genius.com/', ''), _get_lyrics_for_url(url)) for url in sampled_songs]
         print("Writing for artist id: {}".format(ARTIST_MAP[artist]))
-        _write_songs(titles_and_urls, artist)
+        _write_songs(titles_and_urls, artist, db_subfolder)
 
 
-def download_lyrics(artist, number_of_songs=20, save_urls_only=False):
+def download_lyrics_for_artist(artist, db_subfolder, number_of_songs=20, save_urls_only=False):
     print('here')
     artist_id = ARTIST_MAP[artist]
+
     page = 1
     songs_per_request = min(number_of_songs, MAX_SONGS_PER_REQUEST)
     all_urls = []
@@ -66,21 +72,21 @@ def download_lyrics(artist, number_of_songs=20, save_urls_only=False):
         if not save_urls_only:
             for link, title in urls_and_titles:
                 titles_and_lyrics.append((title, _get_lyrics_for_url(link)))
-            _write_songs(titles_and_lyrics, artist)
+            _write_songs(titles_and_lyrics, artist, db_subfolder)
     artist_name = artist.replace('/', '_')
     if not os.path.isdir('./db/{}'.format(artist_name)):
         os.mkdir('./db/{}'.format(artist_name))
     with open('./db/{}/urls.txt'.format(artist_name), 'w') as g:
         g.write('\n'.join(all_urls))
 
-def _write_songs(songs, artist):
+
+def _write_songs(songs, artist, parentfolder):
     print("writing to file")
-    artist_path = './db/{}'.format(artist)
+    artist_path = './db/{}/{}'.format(parentfolder, artist)
     os.makedirs(artist_path, exist_ok=True)
     for idx, (title, lyrics) in enumerate(songs):
         modified_title = title.replace('/', '_').replace(' ', '_')
         with open(os.path.join(artist_path + '/{}_{}.txt'.format(modified_title, idx)), 'w') as g:
-            print(lyrics)
             g.write(lyrics)
     return
 

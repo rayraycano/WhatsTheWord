@@ -14,6 +14,7 @@ SPLITTER = re.compile('[' + string.punctuation + string.whitespace + ']')
 NORMAL_LETTERS = re.compile('^[0-9a-zA-Z]+$')
 
 cleaned_data_path = './cleaned_data/'
+# TODO: Update DB_PATH to take input for next field
 DB_PATH = './db'
 def generate_dataset(name, min_songs_for_artist, write_mode='w'):
     """

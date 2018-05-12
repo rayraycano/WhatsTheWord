@@ -71,3 +71,5 @@ contraction_map = {
     "let's": "let us",
     "ain't": "aint",
 }
+
+LOGDIR = './logs'

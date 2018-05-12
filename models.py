@@ -12,6 +12,37 @@ class Model:
     def load_tesnsors(self):
         return None
 
+    @abc.abstractclassmethod
+    def predict(self, X):
+        """
+        Given matrix X, predict the output class
+        :param X: N x M x [S x ..]Input tensor or placeholder
+        :return: y: N x output dimension
+        """
+
+    @abc.abstractclassmethod
+    def train(self, X, y):
+        """
+        Trains a model to learn X, which corresponds to y
+        :return: None
+        """
+
+    def save(self, saver, sess, name):
+        """
+        :return:
+        """
+        saver.save(sess, name)
+
+
+    @staticmethod
+    def load_saved(path):
+        """
+        Loads a saved model from the given path
+        :param path: path to the model
+        :return: model that behaves under the Model interface
+        """
+        pass
+
 
 class LSTMModel(Model):
 
@@ -96,3 +127,11 @@ class CNNModel(Model):
             self.out = tf.matmul(flattened, self.weights[1]) + self.biases[1]
             print(self.out)
         return self.out
+
+    def predict(self, X):
+        # Intialize Graph
+        # Intialize Session
+        # load tesnsors
+        # Feed dict of X going into self.input tensor
+        # return outputs with softmax classification
+        pass

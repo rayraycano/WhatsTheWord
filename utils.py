@@ -1,7 +1,6 @@
 import os
 import json
-
-LOGDIR = './logs'
+from static import LOGDIR
 
 def load_run_data(run_id, full_folderpath=None):
     """
@@ -32,7 +31,14 @@ def load_run_data(run_id, full_folderpath=None):
 
     return run_config, dictionary, reversed_dictionary, full_folderpath
 
+
 def run_experiment(args, f):
+    """
+    Parses out the correct path to save files to and runs the experiment `f`
+    :param args: arguments from the argument parser
+    :param f: functiona that takes a datafile, run_id, logdir, and **kwargs
+    :return: None
+    """
     param_file = args.pfile
     with open(param_file, 'r') as p:
         param_dict = json.load(p)
