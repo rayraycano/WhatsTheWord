@@ -1,0 +1,16 @@
+{
+  "datafile": "cleaned_data/20180522/top400Cleaned.txt",
+  "batch_size": 256,
+  "embedding_size": 128,
+  "skip_window": 4,
+  "num_skips": 1,
+  "num_sampled": 64,
+  "num_steps": 200000,
+  "vocabulary_size": 10000,
+  "model_type": "cnn",
+  "window_size": 2,
+  "step_size": 1,
+  "output_dim": 256,
+  "model_context": 4,
+  "lookahead": true
+}

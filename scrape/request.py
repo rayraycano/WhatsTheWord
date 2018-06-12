@@ -57,10 +57,11 @@ def download_lyrics_from_urls(sample_rate=0.2, start=1, max_number=1000, artists
         for i in range(NUM_PARTITIONS - 1):
             partitions.append(list(sampled_songs[i * partition_size:(i+1) * partition_size]))
         partitions[-1].extend(sampled_songs[(NUM_PARTITIONS - 1) * partition_size:])
-        get_and_write_pool = Pool(NUM_PARTITIONS)
-        f_args = [{"songs": p, "artist": artist, "dbs": db_subfolder} for p in partitions]
-        print(f_args)
-        get_and_write_pool.map(_get_and_write, f_args)
+        with Pool(processes=NUM_PARTITIONS) as get_and_write_pool:
+            f_args = [{"songs": p, "artist": artist, "dbs": db_subfolder} for p in partitions]
+            print(f_args)
+            get_and_write_pool.map(_get_and_write, f_args)
+        get_and_write_pool.join()
 
 
 def _get_and_write(f_args):

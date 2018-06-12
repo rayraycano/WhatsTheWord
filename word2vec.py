@@ -93,7 +93,7 @@ def main(filename, run_id, logdir,
     with graph.as_default():
         with tf.name_scope('inputs'):
             train_inputs = tf.placeholder(tf.int32, shape=[batch_size])
-            train_model_inputs = tf.placeholder(tf.int32, shape=[batch_size, 8])
+            train_model_inputs = tf.placeholder(tf.int32, shape=[batch_size, model_context * (lookahead + 1)])
             train_labels = tf.placeholder(tf.int32, shape=[batch_size, 1])
             valid_dataset = tf.constant(valid_examples, dtype=tf.int32)
 

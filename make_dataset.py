@@ -16,19 +16,20 @@ NORMAL_LETTERS = re.compile('^[0-9a-zA-Z]+$')
 cleaned_data_path = './cleaned_data/'
 # TODO: Update DB_PATH to take input for next field
 DB_PATH = './db'
-def generate_dataset(name, min_songs_for_artist, write_mode='w'):
+def generate_dataset(name, min_songs_for_artist, datestamp, write_mode='w'):
     """
     Generates a dataset for all artists who have more than the `min_songs_for_artist`
 
     Writes the songs to disk under `cleaned_data/<datestamp/name`
     """
+    db_path = os.path.join(DB_PATH, datestamp)
     datestamp = str(datetime.now().date()).replace('-', '')
     datapath = os.path.join(cleaned_data_path, datestamp)
     if not os.path.isdir(datapath):
         os.makedirs(datapath)
 
     # Fetch all the filenames that we will we read into our large dataset file
-    docs = _sample_lyrics(min_songs_for_artist)
+    docs = _sample_lyrics(min_songs_for_artist, db_path)
     f = open(os.path.join(datapath, name), write_mode)
     regex_replacements = get_regex_replacements()
 
@@ -40,7 +41,7 @@ def generate_dataset(name, min_songs_for_artist, write_mode='w'):
     problem_artists = set()
     noproblem_artistis = set()
     for doc in docs:
-        with open(os.path.join(DB_PATH, doc), 'r') as d:
+        with open(os.path.join(db_path, doc), 'r') as d:
             txt = d.read()
             cleaned, has_problem = clean_data(txt, regex_replacements)
             if has_problem:
@@ -65,16 +66,16 @@ def get_regex_replacements() -> List[RegexReplacement]:
     return regex_replacements
 
 
-def _sample_lyrics(min_songs_for_artist):
+def _sample_lyrics(min_songs_for_artist, db_path):
     """
     Pick which songs to take lyrics from.
 
-    :return: list of filepaths relative to DB_PATH as root
+    :return: list of filepaths relative to db_path as root
     """
     docs = []
-    artists = os.listdir(DB_PATH)
+    artists = os.listdir(db_path)
     for a in artists:
-        songs = os.listdir(os.path.join(DB_PATH, a))
+        songs = os.listdir(os.path.join(db_path, a))
         if len(songs) > min_songs_for_artist:
             docs.extend(map(
                 lambda x: os.path.join(a, x), filter(
@@ -121,5 +122,6 @@ if __name__ == '__main__':
     parser.add_argument("--name")
     parser.add_argument("--write_mode")
     parser.add_argument("--min_songs_for_artist", type=int)
+    parser.add_argument("--ds")
     args = parser.parse_args()
-    generate_dataset(args.name, args.min_songs_for_artist, args.write_mode if args.write_mode else 'w')
+    generate_dataset(args.name, args.min_songs_for_artist, args.ds, args.write_mode if args.write_mode else 'w')
