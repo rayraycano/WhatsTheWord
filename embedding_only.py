@@ -354,14 +354,14 @@ def _load_tensors(vocabulary_size, embedding_size, graph):
                 embeddings = tf.Variable(
                     tf.random_uniform([vocabulary_size, embedding_size], -1.0, 1.0)
                 )
-            with tf.name_scope('weights'):
+            with tf.name_scope('nce_weights'):
                 nce_weights = tf.Variable(
                     tf.truncated_normal(
                         shape=[vocabulary_size, embedding_size],
                         stddev=1.0 / math.sqrt(embedding_size),
                     )
                 )
-            with tf.name_scope('biases'):
+            with tf.name_scope('nce_biases'):
                 nce_biases = tf.Variable(
                     tf.zeros([vocabulary_size])
                 )

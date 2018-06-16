@@ -108,6 +108,7 @@ class CNNModel(Model):
 
             print(self.input_tensor)
             print(self.weights[0])
+            print(self.weights  [1])
             # batch_size x (n_input / step_size) x output_dim
             self.conv = tf.nn.conv1d(self.input_tensor, self.weights[0], stride=self.step_size, padding='SAME')
             print(self.conv)
@@ -120,8 +121,16 @@ class CNNModel(Model):
         with tf.name_scope('calulations'):
             print(self.biases[0])
             self.activations = tf.nn.relu(self.conv + self.biases[0])
-            flattened = tf.contrib.layers.flatten(self.activations) # batch-size x (8 * output_dim)
-            print(flattened)
+            # self.pooled = tf.layers.max_pooling1d(
+            #     self.activations,
+            #     (self.step_size,),
+            #     (self.step_size,),
+            #     'SAME'
+            # )
+            # print("pooled tensor {}".format(self.pooled))
+            flattened = tf.contrib.layers.flatten(self.activations)  # batch-size x (8 * output_dim)
+            self.flattened = flattened
+            print("flattened tensor", flattened)
             print(self.weights[1])
             print(self.biases[1])
             self.out = tf.matmul(flattened, self.weights[1]) + self.biases[1]

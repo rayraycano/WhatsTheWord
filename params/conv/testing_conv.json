@@ -5,7 +5,7 @@
   "skip_window": 4,
   "num_skips": 1,
   "num_sampled": 64,
-  "num_steps": 50000,
+  "num_steps": 5000,
   "vocabulary_size": 2500,
   "model_type": "cnn",
   "window_size": 2,

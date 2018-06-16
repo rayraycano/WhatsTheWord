@@ -51,6 +51,7 @@ def main(filename, run_id, logdir,
             vocabulary_size=vocabulary_size, batch_size=batch_size,
             embedding_size=embedding_size, skip_window=skip_window,
             num_skips=num_skips, num_sampled=num_sampled, num_steps=num_steps,
+            model_context=model_context, lookahead=lookahead, model_type=model_type, **kwargs
         ), f, indent=4, sort_keys=True)
 
     vocabulary = read_data(filename)
@@ -70,8 +71,8 @@ def main(filename, run_id, logdir,
     # Small test run here
     data_index = 0
     test_batch_size = 8
-    batch, model_inputs, labels, data_index = generate_batch(
-        test_batch_size, 2, 1, data, data_index, model_context, lookahead
+    batch, model_inputs, labels, model_labels, data_index = generate_batch(
+        test_batch_size, 2, 1, data, data_index, model_context, reversed_dictionary,lookahead
     )
     print('batch: ', batch)
     print('labels: ', labels)
@@ -95,6 +96,7 @@ def main(filename, run_id, logdir,
             train_inputs = tf.placeholder(tf.int32, shape=[batch_size])
             train_model_inputs = tf.placeholder(tf.int32, shape=[batch_size, model_context * (lookahead + 1)])
             train_labels = tf.placeholder(tf.int32, shape=[batch_size, 1])
+            train_model_labels = tf.placeholder(tf.int32, shape=[batch_size])
             valid_dataset = tf.constant(valid_examples, dtype=tf.int32)
 
         with tf.device('/cpu:0'):
@@ -144,11 +146,14 @@ def main(filename, run_id, logdir,
                     num_sampled=num_sampled,
                     num_classes=vocabulary_size))
             # Note: We use the train inputs here because that is the word we're trying to predict
-            one_hot_labels = tf.one_hot(train_inputs, vocabulary_size)
+            one_hot_labels = tf.one_hot(train_model_labels, vocabulary_size)
             print(one_hot_labels)
             cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
                 logits=out,
                 labels=one_hot_labels))
+            idxs = tf.argmax(tf.nn.softmax(out), axis=1)
+            accuracy = tf.reduce_mean(tf.cast(tf.equal(idxs, tf.cast(train_inputs, tf.int64)), tf.int32))
+            print('accuracy tensor: {}'.format(accuracy))
 
         tf.summary.scalar('nce_loss', nce_loss)
         with tf.name_scope('optimizer'):
@@ -178,13 +183,14 @@ def main(filename, run_id, logdir,
         average_loss = 0
         average_cost = 0
         for step in range(num_steps):
-            batch_inputs, model_inputs, batch_labels, new_data_index = generate_batch(
+            batch_inputs, model_inputs, batch_labels, model_labels, new_data_index = generate_batch(
                 batch_size=batch_size,
                 skip_window=skip_window,
                 num_skips=num_skips,
                 data=data,
                 data_index=data_index,
                 model_context=model_context,
+                rd=reversed_dictionary,
                 lookahead=lookahead,
             )
 
@@ -192,17 +198,22 @@ def main(filename, run_id, logdir,
             feed_dict = {
                 train_inputs: batch_inputs,
                 train_labels: batch_labels,
+                train_model_labels: model_labels,
                 train_model_inputs: model_inputs,
             }
             run_metadata = tf.RunMetadata()
-            _, _, summary, loss_result, cost_result = session.run(
-                [nce_optimizer, cost_optimizer, merged, nce_loss, cost],
+            _, _, summary, loss_result, cost_result, acc_result, preds, full_pred, flat_res = session.run(
+                [nce_optimizer, cost_optimizer, merged, nce_loss, cost, accuracy, idxs, out, model.flattened],
                 feed_dict=feed_dict,
                 run_metadata=run_metadata
             )
+
             average_loss += loss_result
             average_cost += cost_result
             writer.add_summary(summary, step)
+            if step % 100 == 0:
+                print('Argmax Flattened\n', '\n'.join([str(np.argmax(x)) for x in flat_res[:10]]))
+                print('Full Preds\n', '\n'.join([str(x[:10]) for x in full_pred[:10]]))
             if step == (num_steps - 1):
                 writer.add_run_metadata(run_metadata, 'step%d' % step)
             if step % 2000 == 0:
@@ -212,6 +223,17 @@ def main(filename, run_id, logdir,
                 # The average loss is an estimate of the loss over the last 2000 batches.
                 print('Average loss at step ', step, ': ', average_loss)
                 print('Average cost at step ', step, ': -----------', average_cost)
+                print('Accuracy at step ', step, ': ', acc_result * 100, '%')
+                print(batch_labels[0])
+                print(batch_labels.shape)
+                print(preds.shape)
+                for i in range(10):
+                    print("expected {}:{} predicted {}:{}".format(
+                        batch_labels[i][0],
+                        reversed_dictionary[batch_labels[i][0]],
+                        preds[i],
+                        reversed_dictionary[preds[i]]),
+                    )
                 average_loss = 0
                 average_cost = 0
 
@@ -281,7 +303,7 @@ def get_model(model_name, **kwargs):
     raise Exception('Invalid Model Type: {}'.format(model_name))
 
 
-def generate_batch(batch_size, num_skips, skip_window, data, data_index, model_context, lookahead=True):
+def generate_batch(batch_size, num_skips, skip_window, data, data_index, model_context, rd, lookahead=True):
     """
     Again, scooped up from the tensorflow tutorial
     :param batch_size: Number of examples to generate
@@ -297,6 +319,7 @@ def generate_batch(batch_size, num_skips, skip_window, data, data_index, model_c
     batch = np.ndarray(shape=(batch_size), dtype=np.int32)
     model_batch = np.ndarray(shape=(batch_size, model_context * (1 + lookahead)), dtype=np.int32)
     labels = np.ndarray(shape=(batch_size, 1), dtype=np.int32)
+    model_labels = np.ndarray(shape=(batch_size), dtype=np.int32)
     span = 2 * skip_window + 1  # [ skip_window target skip_window ]
     model_span = 2 * model_context + 1
     window_buffer = collections.deque(maxlen=span)
@@ -313,16 +336,27 @@ def generate_batch(batch_size, num_skips, skip_window, data, data_index, model_c
           batch[i * num_skips + j] = window_buffer[skip_window]
           labels[i * num_skips + j, 0] = window_buffer[context_word]
           model_batch[i*num_skips+j] = _make_model_example(list(model_buffer), model_span, lookahead)
+          model_labels[i * num_skips + j] = model_buffer[model_span // 2]
+          # print("target word: ", rd[model_labels[i*num_skips + j]])
+          # print("context: ", [rd[x] for x in model_batch[i*num_skips+j]])
         if data_index == len(data):
           window_buffer.extend(data[0:span])
-          data_index = span
+          # data_index = span
+          data_index = np.random.randint(model_context, len(data) - model_context)
+          window_buffer.extend(data[data_index:data_index + span])
+          model_buffer.extend(data[data_index:data_index + model_span])
         else:
-          window_buffer.append(data[data_index])
-          data_index += 1
+          # window_buffer.append(data[data_index])
+          # model_buffer.append(data[data_index])
+          # data_index += 1
+          data_index = np.random.randint(model_context, len(data) - model_context)
+          window_buffer.extend(data[data_index:data_index + span])
+          model_buffer.extend(data[data_index:data_index + model_span])
     # Backtrack a little bit to avoid skipping words in the end of a batch
     data_index = (data_index + len(data) - span) % len(data)
     model_batch = np.array(model_batch)
-    return batch, model_batch, labels, data_index
+    # print("model batch: ", model_batch)
+    return batch, model_batch, labels, model_labels, data_index
 
 
 def _make_model_example(model_buffer, span, lookahead):
