@@ -1,0 +1,16 @@
+{
+  "datafile": "cleaned_data/20180617/CleanedKickPush.txt",
+  "batch_size": 128,
+  "embedding_size": 32,
+  "skip_window": 4,
+  "num_skips": 1,
+  "num_sampled": 32,
+  "num_steps": 50000,
+  "vocabulary_size": 200,
+  "model_type": "cnn",
+  "window_size": 2,
+  "step_size": 1,
+  "output_dim": 64,
+  "model_context": 4,
+  "lookahead": true
+}

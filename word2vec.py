@@ -59,6 +59,8 @@ def main(filename, run_id, logdir,
 
     # Build the dictionary and replace rare words with UNK token.
     data, count, dictionary, reversed_dictionary = build_dataset(vocabulary, vocabulary_size)
+    print("dictionary size: ", len(dictionary))
+    print("reversed dictionary size should be same: ", len(reversed_dictionary))
     # Check if our words of interest are common words in rap literature
     words_to_check = ['nigga', 'friend', 'brother', 'brotha', 'homie', 'pal', 'dog', 'bitch', 'gangster', 'gangsta']
     for w in words_to_check:
@@ -148,11 +150,14 @@ def main(filename, run_id, logdir,
             # Note: We use the train inputs here because that is the word we're trying to predict
             one_hot_labels = tf.one_hot(train_model_labels, vocabulary_size)
             print(one_hot_labels)
-            cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
-                logits=out,
-                labels=one_hot_labels))
-            idxs = tf.argmax(tf.nn.softmax(out), axis=1)
-            accuracy = tf.reduce_mean(tf.cast(tf.equal(idxs, tf.cast(train_inputs, tf.int64)), tf.int32))
+            cost = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=out, labels=train_model_labels))
+            # cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
+            #     logits=out,
+            #     labels=one_hot_labels))
+            idxs = tf.argmax(out, axis=1)
+            print("idxs shape", idxs.shape)
+            print(train_model_labels.shape)
+            accuracy = tf.reduce_mean(tf.cast(tf.equal(idxs, tf.cast(train_model_labels, tf.int64)), tf.float32))
             print('accuracy tensor: {}'.format(accuracy))
 
         tf.summary.scalar('nce_loss', nce_loss)
@@ -211,9 +216,9 @@ def main(filename, run_id, logdir,
             average_loss += loss_result
             average_cost += cost_result
             writer.add_summary(summary, step)
-            if step % 100 == 0:
-                print('Argmax Flattened\n', '\n'.join([str(np.argmax(x)) for x in flat_res[:10]]))
-                print('Full Preds\n', '\n'.join([str(x[:10]) for x in full_pred[:10]]))
+            # if step % 100 == 0:
+                # print('Argmax Flattened\n', '\n'.join([str(np.argmax(x)) for x in flat_res[:10]]))
+                # print('Full Preds\n', '\n'.join([str(x[:10]) for x in full_pred[:10]]))
             if step == (num_steps - 1):
                 writer.add_run_metadata(run_metadata, 'step%d' % step)
             if step % 2000 == 0:
@@ -227,13 +232,15 @@ def main(filename, run_id, logdir,
                 print(batch_labels[0])
                 print(batch_labels.shape)
                 print(preds.shape)
-                for i in range(10):
-                    print("expected {}:{} predicted {}:{}".format(
-                        batch_labels[i][0],
-                        reversed_dictionary[batch_labels[i][0]],
-                        preds[i],
-                        reversed_dictionary[preds[i]]),
-                    )
+                for i in range(len(preds)):
+                    if i <= 10:
+                        print("expected {}:{} predicted {}:{}".format(
+                            model_labels[i],
+                            reversed_dictionary[model_labels[i]],
+                            preds[i],
+                            reversed_dictionary[preds[i]]),
+                        )
+                    break
                 average_loss = 0
                 average_cost = 0
 
@@ -267,7 +274,7 @@ def main(filename, run_id, logdir,
 
     writer.close()
 
-    plot_tsne(final_embeddings, 500, reversed_dictionary, run_dir)
+    plot_tsne(final_embeddings, min(500, vocabulary_size), reversed_dictionary, run_dir)
 
 
 def plot_tsne(embeddings, plot_only, reversed_dictionary, run_dir):
