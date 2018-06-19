@@ -96,7 +96,8 @@ class CNNModel(Model):
         self.step_size = kwargs['step_size']
         self.activation_length = self.context // self.step_size
         self.output_dim = kwargs['output_dim']
-        self.weights = self.conv = self.biases = self.filter = self.activations = self.out = None
+        self.weights = self.conv = self.biases = self.filter = \
+            self.activations = self.out = self.flattened = None
 
     def load_tesnsors(self):
 
