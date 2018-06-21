@@ -59,6 +59,13 @@ def main(filename, run_id, logdir,
 
     # Build the dictionary and replace rare words with UNK token.
     data, count, dictionary, reversed_dictionary = build_dataset(vocabulary, vocabulary_size)
+    number_indices = len(data)
+    train_count = math.floor(number_indices * 0.85)
+    randomized_indices = list(range(len(data)))
+    random.shuffle(randomized_indices)
+    train_ids = randomized_indices[:train_count]
+    val_ids = randomized_indices[train_count:]
+
     print("dictionary size: ", len(dictionary))
     print("reversed dictionary size should be same: ", len(reversed_dictionary))
     # Check if our words of interest are common words in rap literature
@@ -71,10 +78,17 @@ def main(filename, run_id, logdir,
     del vocabulary
 
     # Small test run here
-    data_index = 0
     test_batch_size = 8
-    batch, model_inputs, labels, model_labels, data_index = generate_batch(
-        test_batch_size, 2, 1, data, data_index, model_context, reversed_dictionary,lookahead
+    # num_skips, skip_window, data, data_indices, model_context, rd, lookahead=True):
+    batch, model_inputs, labels, model_labels = generate_batch(
+        batch_size=test_batch_size,
+        num_skips=2,
+        skip_window=1,
+        data=data,
+        data_indices=list(range(8)),
+        model_context=model_context,
+        rd=reversed_dictionary,
+        lookahead=lookahead,
     )
     print('batch: ', batch)
     print('labels: ', labels)
@@ -95,10 +109,10 @@ def main(filename, run_id, logdir,
 
     with graph.as_default():
         with tf.name_scope('inputs'):
-            train_inputs = tf.placeholder(tf.int32, shape=[batch_size])
-            train_model_inputs = tf.placeholder(tf.int32, shape=[batch_size, model_context * (lookahead + 1)])
-            train_labels = tf.placeholder(tf.int32, shape=[batch_size, 1])
-            train_model_labels = tf.placeholder(tf.int32, shape=[batch_size])
+            train_inputs = tf.placeholder(tf.int32, shape=[None])
+            train_model_inputs = tf.placeholder(tf.int32, shape=[None, model_context * (lookahead + 1)])
+            train_labels = tf.placeholder(tf.int32, shape=[None, 1])
+            train_model_labels = tf.placeholder(tf.int32, shape=[None])
             valid_dataset = tf.constant(valid_examples, dtype=tf.int32)
 
         with tf.device('/cpu:0'):
@@ -187,19 +201,34 @@ def main(filename, run_id, logdir,
 
         average_loss = 0
         average_cost = 0
-        for step in range(num_steps):
-            batch_inputs, model_inputs, batch_labels, model_labels, new_data_index = generate_batch(
+        val_inputs, val_model_inputs, val_labels, val_model_labels = generate_batch(
+            batch_size=len(val_ids),
+            skip_window=skip_window,
+            num_skips=num_skips,
+            data=data,
+            data_indices=val_ids,
+            model_context=model_context,
+            rd=reversed_dictionary,
+            lookahead=lookahead,
+        )
+        val_feed_dict = {
+            train_inputs: val_inputs,
+            train_labels: val_labels,
+            train_model_labels: val_model_labels,
+            train_model_inputs: val_model_inputs,
+        }
+        for step in range(1, num_steps+1):
+            batch_inputs, model_inputs, batch_labels, model_labels = generate_batch(
                 batch_size=batch_size,
                 skip_window=skip_window,
                 num_skips=num_skips,
                 data=data,
-                data_index=data_index,
+                data_indices=train_ids,
                 model_context=model_context,
                 rd=reversed_dictionary,
                 lookahead=lookahead,
             )
 
-            data_index = new_data_index
             feed_dict = {
                 train_inputs: batch_inputs,
                 train_labels: batch_labels,
@@ -243,7 +272,12 @@ def main(filename, run_id, logdir,
                     break
                 average_loss = 0
                 average_cost = 0
-
+            if step % 1000 == 0:
+                validation_accuracy = session.run(
+                    accuracy,
+                    feed_dict=val_feed_dict,
+                )
+                print("Validation Accuracy at step{}: {}%".format(step, validation_accuracy * 100))
             if step % 10000 == 0:
                 sim = similarity.eval()
                 for i in range(valid_size):
@@ -310,7 +344,7 @@ def get_model(model_name, **kwargs):
     raise Exception('Invalid Model Type: {}'.format(model_name))
 
 
-def generate_batch(batch_size, num_skips, skip_window, data, data_index, model_context, rd, lookahead=True):
+def generate_batch(batch_size, num_skips, skip_window, data, data_indices, model_context, rd, lookahead=True):
     """
     Again, scooped up from the tensorflow tutorial
     :param batch_size: Number of examples to generate
@@ -319,24 +353,28 @@ def generate_batch(batch_size, num_skips, skip_window, data, data_index, model_c
     :param data: dataset
     :param data_index: where to satart generating the batch
     :param lookahead: whether or not to use words following the input word for context
+    :param rd: reveresed_dictionary for debugging purposes
     :return:
     """
     assert batch_size % num_skips == 0
     assert num_skips <= 2 * skip_window
+    examples = np.random.choice(data_indices, batch_size // num_skips)
     batch = np.ndarray(shape=(batch_size), dtype=np.int32)
     model_batch = np.ndarray(shape=(batch_size, model_context * (1 + lookahead)), dtype=np.int32)
     labels = np.ndarray(shape=(batch_size, 1), dtype=np.int32)
     model_labels = np.ndarray(shape=(batch_size), dtype=np.int32)
     span = 2 * skip_window + 1  # [ skip_window target skip_window ]
     model_span = 2 * model_context + 1
-    window_buffer = collections.deque(maxlen=span)
-    model_buffer = collections.deque(maxlen=model_span)
-    if data_index + span > len(data):
-        data_index = 0
-    window_buffer.extend(data[data_index:data_index + span])
-    model_buffer.extend(data[data_index:data_index + model_span])
-    data_index += span
-    for i in range(batch_size // num_skips):
+
+    for i, data_index in enumerate(examples):
+        window_buffer = collections.deque(maxlen=span)
+        model_buffer = collections.deque(maxlen=model_span)
+        if data_index + span > len(data):
+            data_index = 0
+        window_buffer.extend(data[data_index:data_index + span])
+        model_buffer.extend(data[data_index:data_index + model_span])
+        data_index += span
+        # for i in range(batch_size // num_skips):
         context_words = [w for w in range(span) if w != skip_window]
         words_to_use = random.sample(context_words, num_skips)
         for j, context_word in enumerate(words_to_use):
@@ -360,10 +398,9 @@ def generate_batch(batch_size, num_skips, skip_window, data, data_index, model_c
           window_buffer.extend(data[data_index:data_index + span])
           model_buffer.extend(data[data_index:data_index + model_span])
     # Backtrack a little bit to avoid skipping words in the end of a batch
-    data_index = (data_index + len(data) - span) % len(data)
     model_batch = np.array(model_batch)
     # print("model batch: ", model_batch)
-    return batch, model_batch, labels, model_labels, data_index
+    return batch, model_batch, labels, model_labels
 
 
 def _make_model_example(model_buffer, span, lookahead):

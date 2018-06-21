@@ -70,6 +70,8 @@ contraction_map = {
     "must've": "must have",
     "let's": "let us",
     "ain't": "aint",
+    "there's": "there is",
+    "y'all": "yall",
 }
 
 LOGDIR = './logs'
