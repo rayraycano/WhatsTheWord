@@ -1,17 +1,18 @@
 {
-  "datafile": "cleaned_data/20180617/CleanedKickPush.txt",
+  "datafile": "cleaned_data/20180625/LupeFiascoCleaned.txt",
   "batch_size": 128,
   "embedding_size": 32,
   "skip_window": 4,
   "num_skips": 1,
   "num_sampled": 32,
   "num_steps": 50000,
-  "vocabulary_size": 200,
-  "model_type": "cnn",
+  "vocabulary_size": 5000,
+  "model_type": "split_cnn",
   "window_size": 4,
   "step_size": 1,
+  "output_channel_dim": 48,
   "output_dim": 64,
-  "model_context": 4,
+  "model_context": 16,
   "lookahead": true,
-  "l2_lambda": 0.1
+  "l2_lambda": 0.01
 }

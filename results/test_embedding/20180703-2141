@@ -1,0 +1,24 @@
+[
+    {
+        "average_loss": 9895.335927724838,
+        "run_dir": "./logs/grids/embedding/test_embedding/20180703-2141",
+        "batch_size": 128,
+        "embedding_size": 64,
+        "skip_window": 2,
+        "num_skips": 2,
+        "num_sampled": 64,
+        "num_steps": 4000,
+        "vocabulary_size": 3000
+    },
+    {
+        "average_loss": 10378.755743384361,
+        "run_dir": "./logs/grids/embedding/test_embedding/20180703-2144",
+        "batch_size": 128,
+        "embedding_size": 64,
+        "skip_window": 2,
+        "num_skips": 2,
+        "num_sampled": 64,
+        "num_steps": 4000,
+        "vocabulary_size": 5000
+    }
+]

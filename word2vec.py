@@ -27,6 +27,7 @@ def main(filename, run_id, logdir,
          model_type='lstm',
          model_context=4,
          lookahead=True,
+         l2_lambda=0.1,
          **kwargs):
     """
     :param filename: Name of the data file
@@ -51,7 +52,8 @@ def main(filename, run_id, logdir,
             vocabulary_size=vocabulary_size, batch_size=batch_size,
             embedding_size=embedding_size, skip_window=skip_window,
             num_skips=num_skips, num_sampled=num_sampled, num_steps=num_steps,
-            model_context=model_context, lookahead=lookahead, model_type=model_type, **kwargs
+            model_context=model_context, lookahead=lookahead, model_type=model_type, l2_lambda=l2_lambda,
+            **kwargs,
         ), f, indent=4, sort_keys=True)
 
     vocabulary = read_data(filename)
@@ -75,6 +77,8 @@ def main(filename, run_id, logdir,
 
     print('Most common words (+UNK)', count[:5])
     print('Sample data', data[:10], [reversed_dictionary[i] for i in data[:10]])
+    print('Unk Percentage Unique: ', count[0][1] / len(set(vocabulary)))
+    print('Unk Percentage All: ', count[0][1] / len(vocabulary))
     del vocabulary
 
     # Small test run here
@@ -164,7 +168,10 @@ def main(filename, run_id, logdir,
             # Note: We use the train inputs here because that is the word we're trying to predict
             one_hot_labels = tf.one_hot(train_model_labels, vocabulary_size)
             print(one_hot_labels)
-            cost = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=out, labels=train_model_labels))
+            cost = tf.reduce_mean(
+                tf.nn.sparse_softmax_cross_entropy_with_logits(
+                    logits=out, labels=train_model_labels
+                )) + tf.constant(l2_lambda) * tf.reduce_sum([tf.nn.l2_loss(x) for x in model.weights])
             # cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
             #     logits=out,
             #     labels=one_hot_labels))
@@ -210,12 +217,30 @@ def main(filename, run_id, logdir,
             model_context=model_context,
             rd=reversed_dictionary,
             lookahead=lookahead,
+            sample=False,
+        )
+        all_train_inputs, all_train_model_inputs, all_train_labels, all_train_model_labels = generate_batch(
+            batch_size=len(train_ids),
+            skip_window=skip_window,
+            num_skips=num_skips,
+            data=data,
+            data_indices=train_ids,
+            model_context=model_context,
+            rd=reversed_dictionary,
+            lookahead=lookahead,
+            sample=False,
         )
         val_feed_dict = {
             train_inputs: val_inputs,
             train_labels: val_labels,
             train_model_labels: val_model_labels,
             train_model_inputs: val_model_inputs,
+        }
+        all_train_data_feed_dict = {
+            train_inputs: all_train_inputs,
+            train_labels: all_train_labels,
+            train_model_labels: all_train_model_labels,
+            train_model_inputs: all_train_model_inputs,
         }
         for step in range(1, num_steps+1):
             batch_inputs, model_inputs, batch_labels, model_labels = generate_batch(
@@ -269,7 +294,8 @@ def main(filename, run_id, logdir,
                             preds[i],
                             reversed_dictionary[preds[i]]),
                         )
-                    break
+                    else:
+                        break
                 average_loss = 0
                 average_cost = 0
             if step % 1000 == 0:
@@ -277,7 +303,12 @@ def main(filename, run_id, logdir,
                     accuracy,
                     feed_dict=val_feed_dict,
                 )
+                train_accuracy = session.run(
+                    accuracy,
+                    feed_dict=all_train_data_feed_dict,
+                )
                 print("Validation Accuracy at step{}: {}%".format(step, validation_accuracy * 100))
+                print("Train Accuracy at step{}: {}%".format(step, train_accuracy * 100))
             if step % 10000 == 0:
                 sim = similarity.eval()
                 for i in range(valid_size):
@@ -341,10 +372,13 @@ def get_model(model_name, **kwargs):
         return models.LSTMModel(**kwargs)
     if model_name == 'cnn':
         return models.CNNModel(**kwargs)
+    if model_name == "split_cnn":
+        return models.SplitCNN(**kwargs)
     raise Exception('Invalid Model Type: {}'.format(model_name))
 
 
-def generate_batch(batch_size, num_skips, skip_window, data, data_indices, model_context, rd, lookahead=True):
+def generate_batch(batch_size, num_skips, skip_window, data, data_indices,
+                   model_context, rd, lookahead=True, sample=True):
     """
     Again, scooped up from the tensorflow tutorial
     :param batch_size: Number of examples to generate
@@ -358,7 +392,10 @@ def generate_batch(batch_size, num_skips, skip_window, data, data_indices, model
     """
     assert batch_size % num_skips == 0
     assert num_skips <= 2 * skip_window
-    examples = np.random.choice(data_indices, batch_size // num_skips)
+    if sample:
+        examples = np.random.choice(data_indices, batch_size // num_skips)
+    else:
+        examples = data_indices[:batch_size//num_skips]
     batch = np.ndarray(shape=(batch_size), dtype=np.int32)
     model_batch = np.ndarray(shape=(batch_size, model_context * (1 + lookahead)), dtype=np.int32)
     labels = np.ndarray(shape=(batch_size, 1), dtype=np.int32)
@@ -369,11 +406,15 @@ def generate_batch(batch_size, num_skips, skip_window, data, data_indices, model
     for i, data_index in enumerate(examples):
         window_buffer = collections.deque(maxlen=span)
         model_buffer = collections.deque(maxlen=model_span)
+        mdi = data_index
+        old_data_index = data_index
         if data_index + span > len(data):
             data_index = 0
+        if old_data_index + model_span > len(data):
+            mdi = 0
         window_buffer.extend(data[data_index:data_index + span])
-        model_buffer.extend(data[data_index:data_index + model_span])
-        data_index += span
+        model_buffer.extend(data[mdi:mdi + model_span])
+
         # for i in range(batch_size // num_skips):
         context_words = [w for w in range(span) if w != skip_window]
         words_to_use = random.sample(context_words, num_skips)
@@ -390,6 +431,7 @@ def generate_batch(batch_size, num_skips, skip_window, data, data_indices, model
           data_index = np.random.randint(model_context, len(data) - model_context)
           window_buffer.extend(data[data_index:data_index + span])
           model_buffer.extend(data[data_index:data_index + model_span])
+
         else:
           # window_buffer.append(data[data_index])
           # model_buffer.append(data[data_index])
@@ -397,6 +439,7 @@ def generate_batch(batch_size, num_skips, skip_window, data, data_indices, model
           data_index = np.random.randint(model_context, len(data) - model_context)
           window_buffer.extend(data[data_index:data_index + span])
           model_buffer.extend(data[data_index:data_index + model_span])
+
     # Backtrack a little bit to avoid skipping words in the end of a batch
     model_batch = np.array(model_batch)
     # print("model batch: ", model_batch)

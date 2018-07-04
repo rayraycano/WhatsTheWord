@@ -1,0 +1,13 @@
+[
+    {
+        "average_loss": 7435.383269786835,
+        "run_dir": "./logs/grids/embedding/LupeEmbeddingGrid/20180703-2226",
+        "batch_size": 128,
+        "embedding_size": 200,
+        "skip_window": 2,
+        "num_skips": 1,
+        "num_sampled": 64,
+        "num_steps": 100000,
+        "vocabulary_size": 9000
+    }
+]

@@ -1,0 +1,27 @@
+[
+    9900.749205589294,
+    {
+        "average_loss": 9900.749205589294,
+        "batch_size": 128,
+        "embedding_size": 64,
+        "skip_window": 2,
+        "num_skips": 2,
+        "num_sampled": 64,
+        "num_steps": 4000,
+        "vocabulary_size": 3000
+    }
+]
+
+[
+    10415.145027160645,
+    {
+        "average_loss": 10415.145027160645,
+        "batch_size": 128,
+        "embedding_size": 64,
+        "skip_window": 2,
+        "num_skips": 2,
+        "num_sampled": 64,
+        "num_steps": 4000,
+        "vocabulary_size": 5000
+    }
+]

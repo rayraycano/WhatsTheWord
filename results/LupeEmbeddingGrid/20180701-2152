@@ -1,0 +1,251 @@
+[
+    8401.54040312767,
+    {
+        "average_loss": 8401.54040312767,
+        "batch_size": 128,
+        "embedding_size": 100,
+        "skip_window": 2,
+        "num_skips": 2,
+        "num_sampled": 64,
+        "num_steps": 50000,
+        "vocabulary_size": 9000
+    }
+]
+
+[
+    8563.492913484573,
+    {
+        "average_loss": 8563.492913484573,
+        "batch_size": 128,
+        "embedding_size": 100,
+        "skip_window": 2,
+        "num_skips": 2,
+        "num_sampled": 64,
+        "num_steps": 50000,
+        "vocabulary_size": 5000
+    }
+]
+
+[
+    8646.159039139748,
+    {
+        "average_loss": 8646.159039139748,
+        "batch_size": 128,
+        "embedding_size": 100,
+        "skip_window": 2,
+        "num_skips": 2,
+        "num_sampled": 64,
+        "num_steps": 50000,
+        "vocabulary_size": 3000
+    }
+]
+
+[
+    8675.990372776985,
+    {
+        "average_loss": 8675.990372776985,
+        "batch_size": 128,
+        "embedding_size": 64,
+        "skip_window": 2,
+        "num_skips": 2,
+        "num_sampled": 64,
+        "num_steps": 50000,
+        "vocabulary_size": 9000
+    }
+]
+
+[
+    8797.17746269703,
+    {
+        "average_loss": 8797.17746269703,
+        "batch_size": 128,
+        "embedding_size": 64,
+        "skip_window": 2,
+        "num_skips": 2,
+        "num_sampled": 64,
+        "num_steps": 50000,
+        "vocabulary_size": 5000
+    }
+]
+
+[
+    8834.331579446793,
+    {
+        "average_loss": 8834.331579446793,
+        "batch_size": 128,
+        "embedding_size": 64,
+        "skip_window": 2,
+        "num_skips": 2,
+        "num_sampled": 64,
+        "num_steps": 50000,
+        "vocabulary_size": 3000
+    }
+]
+
+[
+    9086.569179534912,
+    {
+        "average_loss": 9086.569179534912,
+        "batch_size": 128,
+        "embedding_size": 30,
+        "skip_window": 2,
+        "num_skips": 2,
+        "num_sampled": 64,
+        "num_steps": 50000,
+        "vocabulary_size": 9000
+    }
+]
+
+[
+    9106.376875519753,
+    {
+        "average_loss": 9106.376875519753,
+        "batch_size": 128,
+        "embedding_size": 30,
+        "skip_window": 2,
+        "num_skips": 2,
+        "num_sampled": 64,
+        "num_steps": 50000,
+        "vocabulary_size": 3000
+    }
+]
+
+[
+    9118.62244617939,
+    {
+        "average_loss": 9118.62244617939,
+        "batch_size": 128,
+        "embedding_size": 30,
+        "skip_window": 2,
+        "num_skips": 2,
+        "num_sampled": 64,
+        "num_steps": 50000,
+        "vocabulary_size": 5000
+    }
+]
+
+[
+    9353.311199784279,
+    {
+        "average_loss": 9353.311199784279,
+        "batch_size": 128,
+        "embedding_size": 100,
+        "skip_window": 5,
+        "num_skips": 2,
+        "num_sampled": 64,
+        "num_steps": 50000,
+        "vocabulary_size": 9000
+    }
+]
+
+[
+    9372.052684426308,
+    {
+        "average_loss": 9372.052684426308,
+        "batch_size": 128,
+        "embedding_size": 100,
+        "skip_window": 5,
+        "num_skips": 2,
+        "num_sampled": 64,
+        "num_steps": 50000,
+        "vocabulary_size": 3000
+    }
+]
+
+[
+    9384.705519557,
+    {
+        "average_loss": 9384.705519557,
+        "batch_size": 128,
+        "embedding_size": 100,
+        "skip_window": 5,
+        "num_skips": 2,
+        "num_sampled": 64,
+        "num_steps": 50000,
+        "vocabulary_size": 5000
+    }
+]
+
+[
+    9443.914067626,
+    {
+        "average_loss": 9443.914067626,
+        "batch_size": 128,
+        "embedding_size": 64,
+        "skip_window": 5,
+        "num_skips": 2,
+        "num_sampled": 64,
+        "num_steps": 50000,
+        "vocabulary_size": 3000
+    }
+]
+
+[
+    9468.723388671875,
+    {
+        "average_loss": 9468.723388671875,
+        "batch_size": 128,
+        "embedding_size": 64,
+        "skip_window": 5,
+        "num_skips": 2,
+        "num_sampled": 64,
+        "num_steps": 50000,
+        "vocabulary_size": 9000
+    }
+]
+
+[
+    9499.817176222801,
+    {
+        "average_loss": 9499.817176222801,
+        "batch_size": 128,
+        "embedding_size": 64,
+        "skip_window": 5,
+        "num_skips": 2,
+        "num_sampled": 64,
+        "num_steps": 50000,
+        "vocabulary_size": 5000
+    }
+]
+
+[
+    9567.18604850769,
+    {
+        "average_loss": 9567.18604850769,
+        "batch_size": 128,
+        "embedding_size": 30,
+        "skip_window": 5,
+        "num_skips": 2,
+        "num_sampled": 64,
+        "num_steps": 50000,
+        "vocabulary_size": 3000
+    }
+]
+
+[
+    9644.291152000427,
+    {
+        "average_loss": 9644.291152000427,
+        "batch_size": 128,
+        "embedding_size": 30,
+        "skip_window": 5,
+        "num_skips": 2,
+        "num_sampled": 64,
+        "num_steps": 50000,
+        "vocabulary_size": 5000
+    }
+]
+
+[
+    9660.529918074608,
+    {
+        "average_loss": 9660.529918074608,
+        "batch_size": 128,
+        "embedding_size": 30,
+        "skip_window": 5,
+        "num_skips": 2,
+        "num_sampled": 64,
+        "num_steps": 50000,
+        "vocabulary_size": 9000
+    }
+]

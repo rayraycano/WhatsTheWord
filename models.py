@@ -103,8 +103,16 @@ class CNNModel(Model):
 
         with tf.name_scope('conv_weights'):
             self.weights = [
-                tf.Variable(tf.random_normal([self.window_size, self.embedding_size, self.output_dim])),
-                tf.Variable(tf.random_normal([self.output_dim * self.activation_length, self.vocabulary_size])),
+                tf.Variable(
+                    tf.random_normal(
+                        [self.window_size, self.embedding_size, self.output_dim],
+                        stddev=0.01)
+                ),
+                tf.Variable(
+                    tf.random_normal(
+                        [self.output_dim * self.activation_length, self.vocabulary_size],
+                        stddev=0.01)
+                ),
             ]
 
             print(self.input_tensor)
@@ -145,3 +153,82 @@ class CNNModel(Model):
         # Feed dict of X going into self.input tensor
         # return outputs with softmax classification
         pass
+
+class SplitCNN(Model):
+    def __init__(self, input_tensor, **kwargs):
+        """
+        Initialize a Convolutional Nerual Net Model
+        :param input_tensor: batch_size x window_size x embedding_size
+        :param kwargs: dictionary specifying dimensions. The arguments separate form those already
+        being passed in are
+            window_size: filter size
+            step_size: step size when sliding the filter
+            output_dim: output channels after conv
+            n_input: size of context window
+        """
+        Model.__init__(self, input_tensor, **kwargs)
+        self.embedding_size = kwargs['embedding_size']
+        # Model Context will be symmetrically applied to the behind and forward convolutions
+        self.context = kwargs['model_context']
+        self.window_size = kwargs['window_size']
+        self.vocabulary_size = kwargs['vocabulary_size']
+        self.step_size = kwargs['step_size']
+        self.activation_length = self.context // self.step_size
+        self.output_channel_dim = kwargs['output_channel_dim']
+        self.output_dim = kwargs['output_dim']
+        self.weights = self.conv_pre = self.conv_post = self.biases = self.filter = \
+            self.activations_pre = self.activations_post = self.out = self.synthesize = \
+            self.flattened = None
+
+    def load_tesnsors(self):
+        with tf.name_scope('conv_weights'):
+            self.weights = [
+                tf.Variable(
+                    tf.random_normal(
+                        [self.window_size, self.embedding_size, self.output_channel_dim],
+                        stddev=0.01)
+                ),
+                tf.Variable(
+                    tf.random_normal(
+                        [self.window_size, self.embedding_size, self.output_channel_dim],
+                        stddev=0.01)
+                ),
+                tf.Variable(
+                    tf.random_normal(
+                        [self.output_channel_dim * 2 * self.activation_length, self.output_dim],
+                        stddev=0.01)
+                ),
+                tf.Variable(tf.random_normal([self.output_dim, self.vocabulary_size], stddev=0.01)),
+            ]
+
+            print(self.input_tensor)
+            for w in self.weights:
+                print(w)
+            pre_target, post_target = tf.split(self.input_tensor, num_or_size_splits=2, axis=1)
+            print("pre_target shape: ", pre_target.shape)
+            print("post_target shape: ", post_target.shape)
+            # batch_size x (n_input / step_size) x output_dim
+            self.conv_pre = tf.nn.conv1d(pre_target, self.weights[0], stride=self.step_size, padding='SAME')
+            self.conv_post = tf.nn.conv1d(post_target, self.weights[1], stride=self.step_size, padding='SAME')
+
+        with tf.name_scope('conv_biases'):
+            self.biases = [
+                tf.Variable(tf.random_normal([self.activation_length, self.output_channel_dim])),
+                tf.Variable(tf.random_normal([self.activation_length, self.output_channel_dim])),
+                tf.Variable(tf.random_normal([self.output_dim])),
+                tf.Variable(tf.random_normal([self.vocabulary_size])),
+            ]
+        with tf.name_scope('calulations'):
+            self.activations_pre = tf.nn.relu(self.conv_pre + self.biases[0])
+            self.activations_post = tf.nn.relu(self.conv_post + self.biases[1])
+
+            flattened_pre = tf.contrib.layers.flatten(self.activations_pre)  # batch-size x (8 * output_dim)
+            flattened_post = tf.contrib.layers.flatten(self.activations_post)
+            self.flattened = tf.concat((flattened_pre, flattened_post), axis=1)
+            print(self.weights[1])
+            print(self.biases[1])
+            self.synthesize = tf.nn.relu(tf.matmul(self.flattened, self.weights[2]) + self.biases[2])
+            self.out = tf.matmul(self.synthesize, self.weights[3]) + self.biases[3]
+
+            print(self.out)
+        return self.out

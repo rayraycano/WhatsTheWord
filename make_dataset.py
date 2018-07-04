@@ -111,10 +111,44 @@ def clean_data(file_text, regex_replacements: List[RegexReplacement]=None, check
     txt = removed_bracket_notes
     for rr in regex_replacements:
         txt = rr.rx.sub(rr.replacement, txt)
+    txt = txt.replace("'", "")
     words = SPLITTER.split(txt.lower())
     filtered_words = filter(lambda x: NORMAL_LETTERS.match(x), words)
 
     return ' '.join(filtered_words) + ' ', False
+
+
+def make_artist_dataset(name, datestamp, artist_name):
+    db_path = os.path.join(DB_PATH, datestamp, artist_name)
+    datestamp = str(datetime.now().date()).replace('-', '')
+    datapath = os.path.join(cleaned_data_path, datestamp)
+    if not os.path.isdir(datapath):
+        os.makedirs(datapath)
+    docs = []
+    songs = os.listdir(db_path)
+    if not songs:
+        print("Artist Name '{}' not found in path '{}'".format(artist_name, db_path))
+        return
+
+    docs.extend(map(
+        lambda x: os.path.join(db_path, x), filter(
+            lambda x: 'remix' not in x.lower() and 'translation' not in x.lower() and x != 'urls.txt', songs
+        ))
+    )
+    # Shuffle the list of files so that we can partition it easily into training/testing sets without
+    # biasing a set to a given artist
+    regex_replacements = get_regex_replacements()
+    shuffle(docs)
+    f = open(os.path.join(datapath, name), 'w')
+    for doc in docs:
+        with open(doc, 'r') as d:
+            txt = d.read()
+            cleaned, has_problem = clean_data(txt, regex_replacements)
+            if has_problem:
+                continue
+        f.write(cleaned)
+    f.close()
+    return
 
 
 if __name__ == '__main__':
@@ -123,5 +157,9 @@ if __name__ == '__main__':
     parser.add_argument("--write_mode")
     parser.add_argument("--min_songs_for_artist", type=int)
     parser.add_argument("--ds")
+    parser.add_argument("--artist")
     args = parser.parse_args()
-    generate_dataset(args.name, args.min_songs_for_artist, args.ds, args.write_mode if args.write_mode else 'w')
+    if args.artist:
+        make_artist_dataset(args.name, args.ds, args.artist)
+    else:
+        generate_dataset(args.name, args.min_songs_for_artist, args.ds, args.write_mode if args.write_mode else 'w')

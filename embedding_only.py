@@ -10,7 +10,7 @@ from tensorflow.contrib.tensorboard.plugins import projector
 from sklearn.manifold import TSNE
 from datetime import datetime
 import json
-from utils import load_run_data, run_experiment
+from utils import load_run_data, run_experiment, run_grid_search
 
 
 def main(filename, run_id, logdir,
@@ -136,12 +136,15 @@ def main(filename, run_id, logdir,
         saver = tf.train.Saver()
 
     # Train Now
+    metrics_batch_size = 2000
     with tf.Session(graph=graph) as session:
         writer = tf.summary.FileWriter(run_dir, session.graph)
         init.run()
         print('Started from the bottom')
 
         average_loss = 0
+        if num_steps % metrics_batch_size != 0:
+            raise Exception("Num Steps needs to be a factor of %d" % metrics_batch_size)
         for step in range(num_steps):
             batch_inputs, batch_labels, data_index = generate_batch(
                 batch_size=batch_size,
@@ -202,6 +205,7 @@ def main(filename, run_id, logdir,
     writer.close()
 
     plot_tsne(final_embeddings, 1000, reversed_dictionary, run_dir)
+    return average_loss, {"average_loss": average_loss, 'run_dir': run_dir}
 
 
 def plot_tsne(embeddings, plot_only, reversed_dictionary, run_dir):
@@ -268,6 +272,7 @@ def generate_batch(batch_size, num_skips, skip_window, data, data_index):
 
 def read_data(filename):
     """Extract the first file enclosed in a zip file as a list of words."""
+    print(filename)
     with open(filename, 'r') as f:
         data = f.read().split()
     return data
@@ -338,6 +343,20 @@ def get_similarity(words, run_id, full_folderpath=None):
                 log_str = '%s %s,' % (log_str, close_word)
             print(log_str)
 
+
+def get_tensors(vocabulary_size, embedding_size, graph, full_folderpath):
+    """Gets the tensors as materialized matrices from the saver checkpoints stored within `full_folderpath`"""
+    session = tf.Session(graph=graph)
+    tensors = _load_tensors(vocabulary_size, embedding_size, graph)
+    with session as sess:
+        saver = tf.train.Saver()
+        saver.restore(sess, os.path.join(full_folderpath, 'model.ckpt'))
+        print('model resotred!')
+        embeddings = tensors['embeddings']
+    print("embeddings type: ", type(embeddings))
+    session.close()
+    return tensors
+
 def _load_tensors(vocabulary_size, embedding_size, graph):
     """
     Loads the weights from the specified run, taking the most recent run to be the model
@@ -354,14 +373,14 @@ def _load_tensors(vocabulary_size, embedding_size, graph):
                 embeddings = tf.Variable(
                     tf.random_uniform([vocabulary_size, embedding_size], -1.0, 1.0)
                 )
-            with tf.name_scope('nce_weights'):
+            with tf.name_scope('weights'):
                 nce_weights = tf.Variable(
                     tf.truncated_normal(
                         shape=[vocabulary_size, embedding_size],
                         stddev=1.0 / math.sqrt(embedding_size),
                     )
                 )
-            with tf.name_scope('nce_biases'):
+            with tf.name_scope('biases'):
                 nce_biases = tf.Variable(
                     tf.zeros([vocabulary_size])
                 )
@@ -381,6 +400,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--filename")
     parser.add_argument("--pfile")  # parameters file
-
+    parser.add_argument("--is_grid")
     args = parser.parse_args()
-    run_experiment(args, main)
+    if args.is_grid:
+        run_grid_search(args, main)
+    else:
+        run_experiment(args, main)

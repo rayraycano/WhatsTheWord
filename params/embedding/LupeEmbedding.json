@@ -1,0 +1,10 @@
+{
+  "datafile": "cleaned_data/20180625/LupeFiascoCleaned.txt",
+  "batch_size": 128,
+  "embedding_size": 64,
+  "skip_window": 2,
+  "num_skips": 2,
+  "num_sampled": 64,
+  "num_steps": 100000,
+  "vocabulary_size": 5000
+}

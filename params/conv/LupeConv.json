@@ -1,0 +1,17 @@
+{
+  "datafile": "cleaned_data/20180625/LupeFiascoCleaned.txt",
+  "batch_size": 128,
+  "embedding_size": 24,
+  "skip_window": 4,
+  "num_skips": 1,
+  "num_sampled": 32,
+  "num_steps": 100000,
+  "vocabulary_size": 3800,
+  "model_type": "cnn",
+  "window_size": 8,
+  "step_size": 1,
+  "output_dim": 64,
+  "model_context": 16,
+  "lookahead": true,
+  "l2_lambda": 0.001
+}
