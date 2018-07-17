@@ -1,0 +1,19 @@
+[
+    {
+        "validation_accuracy": 29.807692766189575,
+        "train_accuracy": 95.56313753128052,
+        "average_cost": 243763.3387145996,
+        "run_dir": "./logs/grids/conv/TestingConv/20180705-0853",
+        "embedding_dir": "./logs/grids/embedding/LupeEmbeddingGrid/20180703-2226",
+        "batch_size": 16,
+        "skip_window": 4,
+        "num_steps": 1000,
+        "model_type": "cnn",
+        "window_size": 4,
+        "step_size": 1,
+        "output_dim": 32,
+        "model_context": 10,
+        "lookahead": true,
+        "l2_lambda": 0.1
+    }
+]

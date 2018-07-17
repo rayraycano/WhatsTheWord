@@ -370,6 +370,8 @@ def plot_with_labels(low_dim_embs, labels, filename):
 def get_model(model_name, **kwargs):
     if model_name == 'lstm':
         return models.LSTMModel(**kwargs)
+    if model_name == 'multi_lstm':
+        return models.MultiLSTMModel(**kwargs)
     if model_name == 'cnn':
         return models.CNNModel(**kwargs)
     if model_name == "split_cnn":

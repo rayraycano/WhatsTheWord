@@ -8,7 +8,7 @@ from tensorflow.contrib.tensorboard.plugins import projector
 from datetime import datetime
 import json
 import models
-from utils import run_experiment
+from utils import run_experiment, run_grid_search
 from embedding_only import get_tensors, load_run_data
 from word2vec import generate_batch
 
@@ -19,7 +19,6 @@ def main(filename, run_id, logdir,
          embedding_dir=None,
          batch_size=128,
          skip_window=1,
-         num_sampled=64,
          num_steps=50000,
          model_type='lstm',
          model_context=4,
@@ -54,7 +53,7 @@ def main(filename, run_id, logdir,
         json.dump(dict(
             vocabulary_size=vocabulary_size, batch_size=batch_size,
             embedding_size=embedding_size, skip_window=skip_window,
-            num_skips=NUM_SKIPS, num_sampled=num_sampled, num_steps=num_steps,
+            num_skips=NUM_SKIPS, num_steps=num_steps,
             model_context=model_context, lookahead=lookahead, model_type=model_type, l2_lambda=l2_lambda,
             embedding_dir=embedding_dir,
             **kwargs,
@@ -107,20 +106,23 @@ def main(filename, run_id, logdir,
                                   embedding_size=embedding_size,
                                   skip_window=skip_window,
                                   num_skips=NUM_SKIPS,
-                                  num_sampled=num_sampled,
                                   num_steps=num_steps,
                                   model_context=model_context,
-                                  lookahead=lookahead, **kwargs)
+                                  lookahead=lookahead,
+                                  batch_size=batch_size, **kwargs)
                 out = model.load_tesnsors()
 
         with tf.name_scope('loss'):
             # Note: We use the train inputs here because that is the word we're trying to predict
             one_hot_labels = tf.one_hot(train_model_labels, vocabulary_size)
+            regularized_vars = model.get_trained_variables()
+            print('\n'.join([x.name for x in regularized_vars]))
+            regularization_cost = l2_lambda * tf.reduce_sum([tf.nn.l2_loss(x) for x in regularized_vars])
             print(one_hot_labels)
             cost = tf.reduce_mean(
                 tf.nn.sparse_softmax_cross_entropy_with_logits(
                     logits=out, labels=train_model_labels
-                )) + tf.constant(l2_lambda) * tf.reduce_sum([tf.nn.l2_loss(x) for x in model.weights])
+                )) + regularization_cost
             idxs = tf.argmax(out, axis=1)
             print("idxs shape", idxs.shape)
             print(train_model_labels.shape)
@@ -192,9 +194,10 @@ def main(filename, run_id, logdir,
                 train_model_labels: model_labels,
                 train_model_inputs: model_inputs,
             }
-            to_fetch = [cost_optimizer, merged, cost, accuracy, idxs, out, model.flattened]
+
+            to_fetch = [cost_optimizer, merged, cost, accuracy, idxs, out]
             run_metadata = tf.RunMetadata()
-            _, summary, cost_result, acc_result, preds, full_pred, flat_res = session.run(
+            _, summary, cost_result, acc_result, preds, full_pred = session.run(
                 to_fetch,
                 feed_dict=feed_dict,
                 run_metadata=run_metadata
@@ -222,34 +225,80 @@ def main(filename, run_id, logdir,
                     else:
                         break
                 average_cost = 0
+            # if step % 1000 == 0:
+                # validation_accuracy = session.run(
+                #     accuracy,
+                #     feed_dict=val_feed_dict,
+                # )
+                # train_accuracy = session.run(
+                #     accuracy,
+                #     feed_dict=all_train_data_feed_dict,
+                # )
+                # print("Validation Accuracy at step{}: {}%".format(step, validation_accuracy * 100))
+                # print("Train Accuracy at step{}: {}%".format(step, train_accuracy * 100))
             if step % 1000 == 0:
-                validation_accuracy = session.run(
-                    accuracy,
-                    feed_dict=val_feed_dict,
+                evaluator = BatchSizeEvaluator(batch_size, session, train_model_labels, train_model_inputs, accuracy)
+                validation_accuracy = evaluator.eval(
+                    val_model_labels,
+                    val_model_inputs,
                 )
-                train_accuracy = session.run(
-                    accuracy,
-                    feed_dict=all_train_data_feed_dict,
+                train_accuracy = evaluator.eval(
+                    all_train_model_labels,
+                    all_train_model_inputs,
                 )
-                print("Validation Accuracy at step{}: {}%".format(step, validation_accuracy * 100))
-                print("Train Accuracy at step{}: {}%".format(step, train_accuracy * 100))
-
+                print('Validation Accuracy: ', validation_accuracy)
+                print('Train Accuracy: ', train_accuracy)
         # Write corresponding labels for the embeddings.
         with open(os.path.join(run_dir, 'metadata.tsv'), 'w') as f:
             for i in range(vocabulary_size):
                 f.write(reversed_dictionary[i] + '\n')
 
+        # Get Final Accuracy Metrics
+        evaluator = BatchSizeEvaluator(batch_size, session, train_model_labels, train_model_inputs, accuracy)
+        validation_accuracy = evaluator.eval(
+            val_model_labels,
+            val_model_inputs,
+        )
+        train_accuracy = evaluator.eval(
+            all_train_model_labels,
+            all_train_model_inputs,
+        )
+
         # Save the model for checkpoints.
         saver.save(session, os.path.join(run_dir, 'model.ckpt'))
 
-        # Create a configuration for visualizing embeddings with the labels in TensorBoard.
-        config = projector.ProjectorConfig()
-        embedding_conf = config.embeddings.add()
-        embedding_conf.tensor_name = embeddings.name
-        embedding_conf.metadata_path = os.path.join(run_dir, 'metadata.tsv')
-        projector.visualize_embeddings(writer, config)
-
     writer.close()
+    return float(validation_accuracy) * 100, dict(
+        validation_accuracy=float(validation_accuracy) * 100,
+        train_accuracy=float(train_accuracy) * 100,
+        average_cost=float(average_cost),
+        run_dir=run_dir,
+    )
+
+
+class BatchSizeEvaluator:
+
+    def __init__(self, batch_size, session, label_ph, inputs_ph, acc_tensor):
+        self.batch_size = batch_size
+        self.session = session
+        self.label_ph = label_ph
+        self.inputs_ph = inputs_ph
+        self.acc_tensor = acc_tensor
+
+    def eval(self, labels, inputs):
+        acc = 0
+        runs = 0
+        for b in range(0, len(labels), self.batch_size):
+            runs += 1
+            fd = {
+                self.label_ph: labels[b: b + self.batch_size],
+                self.inputs_ph: inputs[b: b + self.batch_size],
+            }
+            acc += self.session.run(
+                self.acc_tensor,
+                feed_dict=fd,
+            )
+        return acc / runs * 100
 
 
 def get_model(model_name, **kwargs):
@@ -284,6 +333,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--filename")
     parser.add_argument("--pfile")  # parameters file
-
+    parser.add_argument("--is_grid")
     args = parser.parse_args()
-    run_experiment(args, main)
+    if args.is_grid:
+        run_grid_search(args, main)
+    else:
+        run_experiment(args, main)

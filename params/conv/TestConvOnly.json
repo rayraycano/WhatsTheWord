@@ -10,5 +10,5 @@
   "step_size": 1,
   "output_dim": 64,
   "model_context": 4,
-  "lookahead": true
+  "lookahead": true,
 }

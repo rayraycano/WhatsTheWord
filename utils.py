@@ -75,23 +75,28 @@ def run_grid_search(args, f):
         logdir = os.path.join(LOGDIR, *config_path)
         print('run_id: ' + run_id)
         configs = create_grid_list(param_dict)
-        best_score = (-float('inf'),)
+        best_score = -float('inf')
         results_path = os.path.join('results', run_id)
         results_filename = os.path.join(results_path, datetime.now().strftime('%Y%m%d-%H%M'))
         if not os.path.isdir(results_path):
             os.makedirs(results_path)
         results = []
+        run_dir_map = {}
         for c in configs:
             print("config")
             print(c)
             result, result_dict = f(datafile, run_id, logdir, **c)
             result_dict.update(c)
-            results.append((result, result_dict))
+            run_dir_map[result_dict['run_dir']] = result_dict
+            results.append((result, result_dict['run_dir']))
             if result > best_score:
                 best_score = result
                 print('new best score: {}'.format(result_dict))
         results.sort()
-        jsonResults = json.dumps([x[1] for x in results], indent=4)
+        print("results: ", results)
+        print("dir map: ", run_dir_map)
+        sorted_result_list = [run_dir_map[x[1]] for x in results]
+        jsonResults = json.dumps(sorted_result_list, indent=4)
         with open(results_filename, 'w') as f:
             f.write(jsonResults)
 

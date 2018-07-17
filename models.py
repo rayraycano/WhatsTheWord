@@ -51,8 +51,8 @@ class LSTMModel(Model):
         self.embedding_size = kwargs['embedding_size']
         self.vocabulary_size = kwargs['vocabulary_size']
         self.n_hidden = kwargs['n_hidden']
-        self.n_input = kwargs['n_input']
-        self.state_size = (self.n_input, self.embedding_size)
+        self.model_context = kwargs['model_context']
+        self.batch_size = kwargs['batch_size']
         self.weights = self.biases = self.rnn_cell = self.outputs = self.out = None
 
     def load_tesnsors(self):
@@ -63,17 +63,55 @@ class LSTMModel(Model):
         :return:
         """
         with tf.name_scope('lstm_weights'):
-            self.weights = [tf.Variable(tf.random_normal([self.n_hidden, self.vocabulary_size]))]
+            self.weights = [tf.Variable(tf.random_normal([self.n_hidden, self.vocabulary_size], stddev=0.01))]
         with tf.name_scope('lstm_biases'):
             self.biases = [tf.Variable(tf.random_normal([self.vocabulary_size]))]
 
         self.rnn_cell = tf.contrib.rnn.BasicLSTMCell(self.n_hidden)
+        print('input tensor shape', self.input_tensor.shape)
+        print('state size', self.rnn_cell.state_size)
+        inputs = self.sequence_inputs()
+        print(len(inputs))
+        print(inputs[0].shape)
 
-        self.outputs, states = tf.contrib.rnn.static_rnn(self.rnn_cell, self.input_tensor, dtype=tf.float32)
+        self.outputs, states = tf.contrib.rnn.static_rnn(self.rnn_cell, inputs, dtype=tf.float32)
 
         self.out = tf.matmul(self.outputs[-1], self.weights[0]) + self.biases[0]
 
         return self.out
+
+    def sequence_inputs(self):
+        inputs = tf.split(self.input_tensor, self.model_context, 1)
+        return [x[:, 0, :] for x in inputs]
+
+    def get_trained_variables(self):
+        return [
+            x for x in tf.trainable_variables()
+            if 'bias' not in x.name.lower() and
+            'lstm' in x.name.lower()
+        ]
+
+
+class MultiLSTMModel(LSTMModel):
+
+    def load_tensors(self):
+        with tf.name_scope('lstm_weights'):
+            self.weights = [tf.Variable(tf.random_normal([self.n_hidden, self.vocabulary_size], stddev=0.01))]
+        with tf.name_scope('lstm_biases'):
+            self.biases = [tf.Variable(tf.random_normal([self.vocabulary_size]))]
+        self.rnn_cell = tf.contrib.rnn.MultiLSTMCell([
+            tf.contrib.rnn.BasicLSTMCell(self.n_hidden),
+            tf.contrib.rnn.BasicLSTMCell(self.n_hidden),
+        ])
+        inputs = self.sequence_inputs()
+
+        self.outputs, states = tf.contrib.rnn.static_rnn(self.rnn_cell, inputs, dtype=tf.float32)
+
+        self.out = tf.matmul(self.outputs[-1], self.weights[0]) + self.biases[0]
+
+        return self.out
+
+
 
 class CNNModel(Model):
 
@@ -146,6 +184,13 @@ class CNNModel(Model):
             print(self.out)
         return self.out
 
+    def get_trained_variables(self):
+        return [
+            x for x in tf.trainable_variables()
+            if 'bias' not in x.name.lower() and
+            'conv' in x.name.lower()
+        ]
+
     def predict(self, X):
         # Intialize Graph
         # Intialize Session
@@ -154,7 +199,8 @@ class CNNModel(Model):
         # return outputs with softmax classification
         pass
 
-class SplitCNN(Model):
+class SplitCNN(CNNModel):
+
     def __init__(self, input_tensor, **kwargs):
         """
         Initialize a Convolutional Nerual Net Model

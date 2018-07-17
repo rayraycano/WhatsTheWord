@@ -1,0 +1,13 @@
+{
+  "datafile": "cleaned_data/20180617/CleanedKickPush.txt",
+  "embedding_dir": ["./logs/grids/embedding/LupeEmbeddingGrid/20180703-2226"],
+  "batch_size": [64],
+  "skip_window": [4],
+  "num_steps": [10000],
+  "model_type": ["lstm"],
+  "n_hidden": [50, 100, 300],
+  "output_dim": [32],
+  "model_context": [8, 16, 32],
+  "lookahead": [false],
+  "l2_lambda": [0.1, 0.01, 0.001]
+}
