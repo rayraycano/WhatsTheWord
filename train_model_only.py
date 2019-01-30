@@ -31,7 +31,7 @@ def main(filename, run_id, logdir,
     :param vocabulary_size: Size of recognized vocabulary words
     :param batch_size: number of examples in each batch
     :param embedding_size: Dimension of the embedding vector.
-    :param skip_window: How many words to consider left and right.
+    :param skip_windowm: How many words to consider left and right.
     :param num_skips: How many times to reuse an input to generate a label.
     :param num_sampled: Number of negative examples to sample.
     :param num_steps: Number of training iterations to go through.
@@ -119,20 +119,29 @@ def main(filename, run_id, logdir,
             print('\n'.join([x.name for x in regularized_vars]))
             regularization_cost = l2_lambda * tf.reduce_sum([tf.nn.l2_loss(x) for x in regularized_vars])
             print(one_hot_labels)
-            cost = tf.reduce_mean(
-                tf.nn.sparse_softmax_cross_entropy_with_logits(
-                    logits=out, labels=train_model_labels
-                )) + regularization_cost
+            # cost = tf.reduce_mean(
+            #     tf.nn.sparse_softmax_cross_entropy_with_logits(
+            #         logits=out, labels=train_model_labels
+            #     )) + regularization_cost
+            formatted_outs = tf.expand_dims(out, axis=1)
+            formatted_targets = tf.expand_dims(train_model_labels, axis=1)
+            print('formatted_targets shape {}'.format(formatted_targets.shape))
+            print('formatted out shape: {}'.format(formatted_outs.shape))
+            perplexity = tf.contrib.seq2seq.sequence_loss(
+                logits=formatted_outs,
+                targets=formatted_targets,
+                weights=tf.ones((batch_size, 1))
+            )
             idxs = tf.argmax(out, axis=1)
             print("idxs shape", idxs.shape)
             print(train_model_labels.shape)
             accuracy = tf.reduce_mean(tf.cast(tf.equal(idxs, tf.cast(train_model_labels, tf.int64)), tf.float32))
             print('accuracy tensor: {}'.format(accuracy))
-            tf.summary.scalar('cost', cost)
+            tf.summary.scalar('cost', perplexity)
             tf.summary.scalar('accuracy', accuracy)
 
         with tf.name_scope('optimizer'):
-            cost_optimizer = tf.train.AdamOptimizer(learning_rate=0.001).minimize(cost)
+            cost_optimizer = tf.train.AdamOptimizer(learning_rate=0.001).minimize(perplexity)
 
         merged = tf.summary.merge_all()
 
@@ -195,7 +204,7 @@ def main(filename, run_id, logdir,
                 train_model_inputs: model_inputs,
             }
 
-            to_fetch = [cost_optimizer, merged, cost, accuracy, idxs, out]
+            to_fetch = [cost_optimizer, merged, perplexity, accuracy, idxs, out]
             run_metadata = tf.RunMetadata()
             _, summary, cost_result, acc_result, preds, full_pred = session.run(
                 to_fetch,
@@ -212,7 +221,7 @@ def main(filename, run_id, logdir,
                 if step > 0:
 
                     average_cost /= 2000
-                print('Average cost at step ', step, ': -----------', average_cost)
+                print('Average perplexity at step ', step, ': -----------', average_cost)
                 print('Accuracy at step ', step, ': ', acc_result * 100, '%')
                 for i in range(len(preds)):
                     if i <= 10:
@@ -237,29 +246,36 @@ def main(filename, run_id, logdir,
                 # print("Validation Accuracy at step{}: {}%".format(step, validation_accuracy * 100))
                 # print("Train Accuracy at step{}: {}%".format(step, train_accuracy * 100))
             if step % 1000 == 0:
-                evaluator = BatchSizeEvaluator(batch_size, session, train_model_labels, train_model_inputs, accuracy)
-                validation_accuracy = evaluator.eval(
+                evaluator = BatchSizeEvaluator(
+                    batch_size, session, train_model_labels, train_model_inputs, accuracy, perplexity
+                )
+                validation_accuracy, val_perplexity = evaluator.eval(
                     val_model_labels,
                     val_model_inputs,
                 )
-                train_accuracy = evaluator.eval(
+                train_accuracy, train_perplexity = evaluator.eval(
                     all_train_model_labels,
                     all_train_model_inputs,
                 )
                 print('Validation Accuracy: ', validation_accuracy)
                 print('Train Accuracy: ', train_accuracy)
+                print('=====')
+                print('Validation Perplexity {}'.format(val_perplexity))
+                print('Training Perplexity {}'.format(train_perplexity))
         # Write corresponding labels for the embeddings.
         with open(os.path.join(run_dir, 'metadata.tsv'), 'w') as f:
             for i in range(vocabulary_size):
                 f.write(reversed_dictionary[i] + '\n')
 
         # Get Final Accuracy Metrics
-        evaluator = BatchSizeEvaluator(batch_size, session, train_model_labels, train_model_inputs, accuracy)
-        validation_accuracy = evaluator.eval(
+        evaluator = BatchSizeEvaluator(
+            batch_size, session, train_model_labels, train_model_inputs, accuracy, perplexity
+        )
+        validation_accuracy, val_perplexity = evaluator.eval(
             val_model_labels,
             val_model_inputs,
         )
-        train_accuracy = evaluator.eval(
+        train_accuracy, train_perplexity = evaluator.eval(
             all_train_model_labels,
             all_train_model_inputs,
         )
@@ -268,7 +284,9 @@ def main(filename, run_id, logdir,
         saver.save(session, os.path.join(run_dir, 'model.ckpt'))
 
     writer.close()
-    return float(validation_accuracy) * 100, dict(
+    return float(val_perplexity) * 100, dict(
+        validation_perplexity=float(val_perplexity),
+        train_perplexity=float(train_perplexity),
         validation_accuracy=float(validation_accuracy) * 100,
         train_accuracy=float(train_accuracy) * 100,
         average_cost=float(average_cost),
@@ -278,27 +296,39 @@ def main(filename, run_id, logdir,
 
 class BatchSizeEvaluator:
 
-    def __init__(self, batch_size, session, label_ph, inputs_ph, acc_tensor):
+    def __init__(self, batch_size, session, label_ph, inputs_ph, acc_tensor, perplexity_tensor):
         self.batch_size = batch_size
         self.session = session
         self.label_ph = label_ph
         self.inputs_ph = inputs_ph
         self.acc_tensor = acc_tensor
+        self.perplexity_tensor = perplexity_tensor
 
     def eval(self, labels, inputs):
         acc = 0
         runs = 0
+        perplexity = 0
         for b in range(0, len(labels), self.batch_size):
+            l = labels[b: b + self.batch_size]
+            i = inputs[b: b + self.batch_size]
+            # Model seems to create tensors based on batch size and lock in to it.
+            if len(i) % 16 != 0:
+                break
+
             runs += 1
+
             fd = {
-                self.label_ph: labels[b: b + self.batch_size],
-                self.inputs_ph: inputs[b: b + self.batch_size],
+                self.label_ph: l,
+                self.inputs_ph: i,
             }
-            acc += self.session.run(
-                self.acc_tensor,
+            run_acc, run_perp = self.session.run(
+                [self.acc_tensor, self.perplexity_tensor],
                 feed_dict=fd,
             )
-        return acc / runs * 100
+
+            acc += run_acc
+            perplexity += run_perp
+        return acc / runs * 100, perplexity / runs * 100
 
 
 def get_model(model_name, **kwargs):
